@@ -1,40 +1,61 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const fetch = require('node-fetch'); // Toast API prep
+const fetch = require('node-fetch');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// === Config (put your Toast token + location later)
+// ENV CONFIG — set in Railway
 const TOAST_API_KEY = process.env.TOAST_API_KEY || '';
 const TOAST_LOCATION_ID = process.env.TOAST_LOCATION_ID || '';
-const TOAST_API_URL = `https://toast-api.example.com/locations/${TOAST_LOCATION_ID}/orders`; // Example URL placeholder
+const TOAST_API_URL = `https://toast-api.example.com/locations/${TOAST_LOCATION_ID}/orders`; // Replace with real URL when known
 
 app.use(bodyParser.json({ limit: '10mb' }));
 
-// === Simple order parser
+// === Helper: Improved Order Parser
 function extractOrderFromTranscript(transcript) {
     const order = {
         customer_name: 'N/A',
         phone: 'N/A',
         items: [],
-        pickup_time: 'N/A'
+        pickup_time: 'ASAP'
     };
 
     transcript.forEach(turn => {
-        if (turn.role === 'user' && /order|pickup|can I get|I'd like/.test(turn.message.toLowerCase())) {
-            order.items.push({
-                name: 'Sample Item',
-                qty: 1
+        const msg = turn.message.toLowerCase();
+
+        if (turn.role === 'user') {
+            // Extract name
+            if (/my name is/i.test(turn.message)) {
+                const match = turn.message.match(/my name is\s+([a-zA-Z\s]+)/i);
+                if (match) order.customer_name = match[1].trim();
+            }
+
+            // Extract phone
+            if (/\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/.test(turn.message)) {
+                const match = turn.message.match(/(\d{3}[-.\s]?\d{3}[-.\s]?\d{4})/);
+                if (match) order.phone = match[1].trim();
+            }
+
+            // Extract items — very basic list
+            const itemKeywords = [
+                'butter chicken', 'chicken biryani', 'shrimp biryani', 'shrimp fry',
+                'tandoori chicken', 'half tandoori chicken', 'mango lassi',
+                'goat curry', 'chicken tikka', 'paneer tikka', 'chicken vindaloo'
+            ];
+
+            itemKeywords.forEach(item => {
+                if (msg.includes(item)) {
+                    order.items.push({
+                        name: item,
+                        qty: 1
+                    });
+                }
             });
         }
     });
 
-    if (order.items.length > 0) {
-        return order;
-    } else {
-        return null;
-    }
+    return order.items.length > 0 ? order : null;
 }
 
 // POST endpoint for ElevenLabs webhook
@@ -63,6 +84,7 @@ app.post('/post-call', async (req, res) => {
         console.log(data.data.analysis.transcript_summary);
     }
 
+    // ORDER DETECTION
     const detectedOrder = extractOrderFromTranscript(transcript);
 
     if (detectedOrder) {
@@ -78,7 +100,10 @@ app.post('/post-call', async (req, res) => {
                     },
                     body: JSON.stringify({
                         order: {
-                            ...detectedOrder
+                            customer_name: detectedOrder.customer_name,
+                            phone: detectedOrder.phone,
+                            items: detectedOrder.items,
+                            pickup_time: detectedOrder.pickup_time
                         }
                     })
                 });
