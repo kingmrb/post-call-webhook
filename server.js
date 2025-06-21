@@ -5,12 +5,18 @@ const fetch = require('node-fetch');
 const app = express();
 const port = process.env.PORT || 3000;
 
+// ENV variables (now no hard-coded keys)
 const TOAST_API_KEY = process.env.TOAST_API_KEY || '';
 const TOAST_LOCATION_ID = process.env.TOAST_LOCATION_ID || '';
+const TOAST_API_URL = 'https://api.toasttab.com/orders'; // Example endpoint (replace with correct Toast API endpoint)
 
-app.use(bodyParser.json({ limit: '10mb' }));
+// Example menu items for improved matching:
+const menuItems = [
+    'butter chicken', 'mango lassi', 'chicken 65', 'chicken majestic', 'shrimp fry', 'tandoori chicken', 
+    'tandoori chicken half', 'chicken dum biryani', 'egg biryani', 'lamb curry', 'goat curry'
+];
 
-// === Helper — simple regex-based order extractor ===
+// Helper: extract order from transcript
 function extractOrderFromTranscript(transcript) {
     const order = {
         customer_name: 'N/A',
@@ -19,62 +25,45 @@ function extractOrderFromTranscript(transcript) {
         pickup_time: 'N/A'
     };
 
-    const phoneRegex = /(\d{3}[-.\s]?\d{3}[-.\s]?\d{4})/;
-    const quantityWords = {
-        one: 1, two: 2, three: 3, four: 4, five: 5,
-        six: 6, seven: 7, eight: 8, nine: 9, ten: 10
-    };
-
+    // Extract name and phone
     transcript.forEach(turn => {
-        const msg = turn.message.toLowerCase();
+        if (turn.role === 'user') {
+            // Extract name
+            const nameMatch = turn.message.match(/my name is\s+([A-Za-z\s]+)/i);
+            if (nameMatch) {
+                order.customer_name = nameMatch[1].trim();
+            }
 
-        // Extract phone
-        if (order.phone === 'N/A') {
-            const phoneMatch = turn.message.match(phoneRegex);
+            // Extract phone
+            const phoneMatch = turn.message.match(/(\d{3}[-.\s]?\d{3}[-.\s]?\d{4})/);
             if (phoneMatch) {
-                order.phone = phoneMatch[1];
+                order.phone = phoneMatch[1].trim();
             }
-        }
 
-        // Extract name (very simple)
-        if (order.customer_name === 'N/A' && msg.includes('my name is')) {
-            const parts = turn.message.split('my name is');
-            if (parts[1]) {
-                order.customer_name = parts[1].split('.')[0].trim();
-            }
-        }
-
-        // Extract items
-        if (turn.role === 'user' && /order|can i get|i want|i'd like|pickup/.test(msg)) {
-            const itemMatches = turn.message.match(/\b(\w+)\s+(butter chicken|chicken dum biryani|egg biryani|chicken majestic|chicken 65|chicken vindaloo|mango lassi|naan|paneer tikka masala)\b/gi);
-            
-            if (itemMatches) {
-                itemMatches.forEach(match => {
-                    const parts = match.trim().split(' ');
-                    let qty = 1;
-                    let itemName = parts.slice(1).join(' ');
-
-                    if (quantityWords[parts[0]]) {
-                        qty = quantityWords[parts[0]];
-                    } else if (!isNaN(parseInt(parts[0]))) {
-                        qty = parseInt(parts[0]);
-                    }
-
+            // Extract items
+            menuItems.forEach(item => {
+                const regex = new RegExp(`(\\d+)\\s*(?:x|order[s]? of|)\\s*${item}`, 'i');
+                const match = turn.message.match(regex);
+                if (match) {
                     order.items.push({
-                        name: itemName,
-                        qty
+                        name: item,
+                        qty: parseInt(match[1])
                     });
-                });
-            }
+                } else if (turn.message.toLowerCase().includes(item)) {
+                    // If no quantity, assume 1
+                    order.items.push({
+                        name: item,
+                        qty: 1
+                    });
+                }
+            });
         }
-
-        // (Optional) pickup time — future improvement
     });
 
     return order.items.length > 0 ? order : null;
 }
 
-// POST endpoint for ElevenLabs Post-Call webhook
+// POST endpoint
 app.post('/post-call', async (req, res) => {
     const data = req.body;
 
@@ -85,6 +74,7 @@ app.post('/post-call', async (req, res) => {
 
     const transcript = data?.data?.transcript || [];
 
+    // Print transcript
     if (transcript.length > 0) {
         transcript.forEach(turn => {
             if (turn.role && turn.message) {
@@ -95,11 +85,13 @@ app.post('/post-call', async (req, res) => {
         console.log('⚠️ No transcript found.');
     }
 
+    // Print summary
     if (data?.data?.analysis?.transcript_summary) {
         console.log('\nSummary:');
         console.log(data.data.analysis.transcript_summary);
     }
 
+    // Detect order
     const detectedOrder = extractOrderFromTranscript(transcript);
 
     if (detectedOrder) {
@@ -107,16 +99,15 @@ app.post('/post-call', async (req, res) => {
 
         if (TOAST_API_KEY && TOAST_LOCATION_ID) {
             try {
-                const response = await fetch(`https://api.toasttab.com/v1/locations/${TOAST_LOCATION_ID}/orders`, {
+                const response = await fetch(TOAST_API_URL, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${TOAST_API_KEY}`,
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        order: {
-                            ...detectedOrder
-                        }
+                        location_id: TOAST_LOCATION_ID,
+                        order: { ...detectedOrder }
                     })
                 });
 
