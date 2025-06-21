@@ -1,22 +1,18 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const fetch = require('node-fetch');
+const fetch = require('node-fetch'); // Toast API prep
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// ENV variables (now no hard-coded keys)
+// === Config (put your Toast token + location later)
 const TOAST_API_KEY = process.env.TOAST_API_KEY || '';
 const TOAST_LOCATION_ID = process.env.TOAST_LOCATION_ID || '';
-const TOAST_API_URL = 'https://api.toasttab.com/orders'; // Example endpoint (replace with correct Toast API endpoint)
+const TOAST_API_URL = `https://toast-api.example.com/locations/${TOAST_LOCATION_ID}/orders`; // Example URL placeholder
 
-// Example menu items for improved matching:
-const menuItems = [
-    'butter chicken', 'mango lassi', 'chicken 65', 'chicken majestic', 'shrimp fry', 'tandoori chicken', 
-    'tandoori chicken half', 'chicken dum biryani', 'egg biryani', 'lamb curry', 'goat curry'
-];
+app.use(bodyParser.json({ limit: '10mb' }));
 
-// Helper: extract order from transcript
+// === Simple order parser
 function extractOrderFromTranscript(transcript) {
     const order = {
         customer_name: 'N/A',
@@ -25,45 +21,23 @@ function extractOrderFromTranscript(transcript) {
         pickup_time: 'N/A'
     };
 
-    // Extract name and phone
     transcript.forEach(turn => {
-        if (turn.role === 'user') {
-            // Extract name
-            const nameMatch = turn.message.match(/my name is\s+([A-Za-z\s]+)/i);
-            if (nameMatch) {
-                order.customer_name = nameMatch[1].trim();
-            }
-
-            // Extract phone
-            const phoneMatch = turn.message.match(/(\d{3}[-.\s]?\d{3}[-.\s]?\d{4})/);
-            if (phoneMatch) {
-                order.phone = phoneMatch[1].trim();
-            }
-
-            // Extract items
-            menuItems.forEach(item => {
-                const regex = new RegExp(`(\\d+)\\s*(?:x|order[s]? of|)\\s*${item}`, 'i');
-                const match = turn.message.match(regex);
-                if (match) {
-                    order.items.push({
-                        name: item,
-                        qty: parseInt(match[1])
-                    });
-                } else if (turn.message.toLowerCase().includes(item)) {
-                    // If no quantity, assume 1
-                    order.items.push({
-                        name: item,
-                        qty: 1
-                    });
-                }
+        if (turn.role === 'user' && /order|pickup|can I get|I'd like/.test(turn.message.toLowerCase())) {
+            order.items.push({
+                name: 'Sample Item',
+                qty: 1
             });
         }
     });
 
-    return order.items.length > 0 ? order : null;
+    if (order.items.length > 0) {
+        return order;
+    } else {
+        return null;
+    }
 }
 
-// POST endpoint
+// POST endpoint for ElevenLabs webhook
 app.post('/post-call', async (req, res) => {
     const data = req.body;
 
@@ -74,7 +48,6 @@ app.post('/post-call', async (req, res) => {
 
     const transcript = data?.data?.transcript || [];
 
-    // Print transcript
     if (transcript.length > 0) {
         transcript.forEach(turn => {
             if (turn.role && turn.message) {
@@ -85,13 +58,11 @@ app.post('/post-call', async (req, res) => {
         console.log('⚠️ No transcript found.');
     }
 
-    // Print summary
     if (data?.data?.analysis?.transcript_summary) {
         console.log('\nSummary:');
         console.log(data.data.analysis.transcript_summary);
     }
 
-    // Detect order
     const detectedOrder = extractOrderFromTranscript(transcript);
 
     if (detectedOrder) {
@@ -106,8 +77,9 @@ app.post('/post-call', async (req, res) => {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        location_id: TOAST_LOCATION_ID,
-                        order: { ...detectedOrder }
+                        order: {
+                            ...detectedOrder
+                        }
                     })
                 });
 
