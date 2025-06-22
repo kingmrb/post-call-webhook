@@ -12,10 +12,12 @@ const TOAST_API_KEY = 'your-test-toast-api-key';
 const TOAST_LOCATION_ID = 'test-location-id';
 const TOAST_API_URL = `https://toast-api.example.com/locations/${TOAST_LOCATION_ID}/orders`;
 
+
 const supabase = createClient(
-  'https://YOUR_PROJECT_URL.supabase.co',
-  'YOUR_SUPABASE_SERVICE_KEY'
+  'https://wwtikqarqkgnxzwyqeur.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind3dGlrcWFycWtnbnh6d3lxZXVyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MDU1Njc1NywiZXhwIjoyMDY2MTMyNzU3fQ.6fIL5inBJfOKB5aO8GjXmXFIW-0V39n5PBzc_U_1pDA'
 );
+
 
 app.use(bodyParser.json({ limit: '10mb' }));
 
