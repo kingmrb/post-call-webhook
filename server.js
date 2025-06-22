@@ -1,19 +1,17 @@
-// v1.06 — Original Toast + Supabase Save + /voice disclaimer
+// v1.06.1 — Original Toast + Supabase Save + /voice (GET) disclaimer
 
 const express = require('express');
 const bodyParser = require('body-parser');
-const fetch = require('node-fetch'); // Toast needs fetch
+const fetch = require('node-fetch');
 const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// === Hardcoded Toast test config ===
 const TOAST_API_KEY = 'your-test-toast-api-key';
 const TOAST_LOCATION_ID = 'test-location-id';
-const TOAST_API_URL = `https://toast-api.example.com/locations/${TOAST_LOCATION_ID}/orders`; // Example
+const TOAST_API_URL = `https://toast-api.example.com/locations/${TOAST_LOCATION_ID}/orders`;
 
-// === Supabase setup ===
 const supabase = createClient(
   'https://YOUR_PROJECT_URL.supabase.co',
   'YOUR_SUPABASE_SERVICE_KEY'
@@ -21,7 +19,6 @@ const supabase = createClient(
 
 app.use(bodyParser.json({ limit: '10mb' }));
 
-// === Extract order from transcript ===
 function extractOrderFromTranscript(transcript) {
   const order = {
     customer_name: 'N/A',
@@ -43,19 +40,16 @@ function extractOrderFromTranscript(transcript) {
     const msg = turn.message ? turn.message.toLowerCase() : '';
 
     if (turn.role === 'user') {
-      // Name
       if (/my name is/i.test(msg)) {
         const match = msg.match(/my name is\s+([a-zA-Z\s]+)/i);
         if (match) order.customer_name = match[1].trim();
       }
 
-      // Phone
       if (/\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/.test(msg)) {
         const match = msg.match(/(\d{3}[-.\s]?\d{3}[-.\s]?\d{4})/);
         if (match) order.phone = match[1].trim();
       }
 
-      // Items
       itemKeywords.forEach(item => {
         if (msg.includes(item)) {
           order.items.push({
@@ -67,14 +61,9 @@ function extractOrderFromTranscript(transcript) {
     }
   });
 
-  if (order.items.length > 0) {
-    return order;
-  } else {
-    return null;
-  }
+  return order.items.length > 0 ? order : null;
 }
 
-// === POST /post-call — your existing logic — KEEPING SAME ===
 app.post('/post-call', async (req, res) => {
   const data = req.body;
 
@@ -105,7 +94,6 @@ app.post('/post-call', async (req, res) => {
   if (detectedOrder) {
     console.log('\n📦 Detected ORDER — preparing for Toast POS:\n', detectedOrder);
 
-    // === Send to Toast ===
     try {
       const response = await fetch(TOAST_API_URL, {
         method: 'POST',
@@ -124,7 +112,6 @@ app.post('/post-call', async (req, res) => {
       console.error('❌ Error sending order to Toast:', err.message);
     }
 
-    // === Save to Supabase ===
     try {
       const { error } = await supabase
         .from('orders')
@@ -149,7 +136,6 @@ app.post('/post-call', async (req, res) => {
   res.status(200).send('Webhook received');
 });
 
-// === NEW: POST /submit-order (optional) — allows external submit ===
 app.post('/submit-order', async (req, res) => {
   try {
     const { customer_name, phone_number, items, pickup_time } = req.body;
@@ -179,8 +165,8 @@ app.post('/submit-order', async (req, res) => {
   }
 });
 
-// === NEW: POST /voice — plays disclaimer, redirects to ElevenLabs ===
-app.post('/voice', (req, res) => {
+// === FIXED: GET /voice — works with Twilio GET ===
+app.get('/voice', (req, res) => {
   const twiml = `
     <?xml version="1.0" encoding="UTF-8"?>
     <Response>
@@ -193,8 +179,7 @@ app.post('/voice', (req, res) => {
   res.send(twiml);
 });
 
-// === Start server ===
 app.listen(port, () => {
-  console.log(`✅ Server is listening on port ${port} (version 1.06)`);
+  console.log(`✅ Server is listening on port ${port} (version 1.06.1)`);
 });
 
