@@ -81,4 +81,62 @@ app.post('/post-call', async (req, res) => {
       }
     });
   } else {
+    console.log('⚠️ No transcript found.');
+  }
+
+  if (data?.data?.analysis?.transcript_summary) {
+    console.log('\nSummary:');
+    console.log(data.data.analysis.transcript_summary);
+  }
+
+  const detectedOrder = extractOrderFromTranscript(transcript);
+
+  if (detectedOrder) {
+    console.log('\n📦 Detected ORDER — preparing for Toast POS:\n', detectedOrder);
+
+    try {
+      const response = await fetch(TOAST_API_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${TOAST_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          order: { ...detectedOrder }
+        })
+      });
+
+      const result = await response.json();
+      console.log('✅ Toast API Response:', result);
+    } catch (err) {
+      console.error('❌ Error sending order to Toast:', err.message);
+    }
+
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .insert([{
+          customer_name: detectedOrder.customer_name,
+          phone_number: detectedOrder.phone,
+          items: detectedOrder.items,
+          pickup_time: detectedOrder.pickup_time,
+          source: "James"
+        }]);
+
+      if (error) {
+        console.error('❌ Error saving order to Supabase:', error);
+      } else {
+        console.log('✅ Order saved to Supabase');
+      }
+    } catch (err) {
+      console.error('❌ Supabase error:', err.message);
+    }
+  }
+
+  res.status(200).send('Webhook received');
+});
+
+app.listen(port, () => {
+  console.log(`✅ Server is listening on port ${port} (version 1.05-clean)`);
+});
 
