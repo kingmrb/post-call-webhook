@@ -1,4 +1,4 @@
-// server.js v1.07 — Includes dynamic cutoff time logic with EST timezone fix
+// server.js v1.07+log — Includes dynamic cutoff logic + log agent used
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -58,6 +58,7 @@ function isPastCutoff(hours) {
 app.get('/voice', (req, res) => {
   const useFallback = isPastCutoff(restaurantHours);
   const selectedAgentId = useFallback ? ELEVENLABS_FALLBACK_AGENT : ELEVENLABS_MAIN_AGENT;
+  console.log("📞 Selected ElevenLabs Agent:", selectedAgentId);
 
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -164,6 +165,6 @@ app.post('/post-call', async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`✅ Server is listening on port ${port} (v1.07)`);
+  console.log(`✅ Server is listening on port ${port} (v1.07+log)`);
 });
 
