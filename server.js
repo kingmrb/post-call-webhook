@@ -1,4 +1,4 @@
-// server.js v1.06 — includes: Toast + Supabase + dynamic hours + /voice redirect
+// server.js v1.07 — Includes dynamic cutoff time logic with EST timezone fix
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -34,7 +34,8 @@ const restaurantHours = {
 };
 
 function isPastCutoff(hours) {
-  const now = new Date();
+  const nowString = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+  const now = new Date(nowString);
   const currentDay = now.toLocaleString("en-US", { weekday: "long" });
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
   const todayShifts = hours[currentDay] || [];
@@ -67,7 +68,6 @@ app.get('/voice', (req, res) => {
   res.send(twiml);
 });
 
-// === order extraction ===
 function extractOrderFromTranscript(transcript) {
   const order = {
     customer_name: 'N/A',
@@ -103,7 +103,6 @@ function extractOrderFromTranscript(transcript) {
   return order.items.length > 0 ? order : null;
 }
 
-// === post-call webhook ===
 app.post('/post-call', async (req, res) => {
   const data = req.body;
   console.log('✅ Webhook received');
@@ -165,6 +164,6 @@ app.post('/post-call', async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`✅ Server is listening on port ${port} (v1.06)`);
+  console.log(`✅ Server is listening on port ${port} (v1.07)`);
 });
 
