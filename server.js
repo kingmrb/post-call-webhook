@@ -1,4 +1,4 @@
-// server.js v1.07+log — Includes dynamic cutoff logic + log agent used
+// v1.05-clean — Original Toast + Supabase Save — no /voice
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -8,12 +8,10 @@ const { createClient } = require('@supabase/supabase-js');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// === Config ===
+// === Hardcoded Toast test config ===
 const TOAST_API_KEY = 'your-test-toast-api-key';
 const TOAST_LOCATION_ID = 'test-location-id';
 const TOAST_API_URL = `https://toast-api.example.com/locations/${TOAST_LOCATION_ID}/orders`;
-const ELEVENLABS_MAIN_AGENT = 'agent_01jxztfvaqed3bk0wtd0wngpwj';
-const ELEVENLABS_FALLBACK_AGENT = 'agent_01jyt5eyfvfqmbs6d8d2fgytbr';
 
 const supabase = createClient(
   'https://wwtikqarqkgnxzwyqeur.supabase.co',
@@ -21,53 +19,6 @@ const supabase = createClient(
 );
 
 app.use(bodyParser.json({ limit: '10mb' }));
-
-// === Restaurant hours config ===
-const restaurantHours = {
-  Monday: [],
-  Tuesday: [ { open: "11:00", close: "15:00" }, { open: "17:00", close: "21:30" } ],
-  Wednesday: [ { open: "11:00", close: "15:00" }, { open: "17:00", close: "21:30" } ],
-  Thursday: [ { open: "11:00", close: "15:00" }, { open: "17:00", close: "21:30" } ],
-  Friday: [ { open: "11:00", close: "15:00" }, { open: "17:00", close: "22:00" } ],
-  Saturday: [ { open: "11:00", close: "15:00" }, { open: "17:00", close: "22:00" } ],
-  Sunday: [ { open: "11:00", close: "15:00" }, { open: "17:00", close: "21:30" } ]
-};
-
-function isPastCutoff(hours) {
-  const nowString = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
-  const now = new Date(nowString);
-  const currentDay = now.toLocaleString("en-US", { weekday: "long" });
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  const todayShifts = hours[currentDay] || [];
-
-  for (const shift of todayShifts) {
-    const [openH, openM] = shift.open.split(":" ).map(Number);
-    const [closeH, closeM] = shift.close.split(":" ).map(Number);
-    const shiftStart = openH * 60 + openM;
-    const shiftEnd = closeH * 60 + closeM;
-    const cutoffTime = shiftEnd - 15;
-
-    if (currentMinutes >= shiftStart && currentMinutes < cutoffTime) {
-      return false; // Accepting orders
-    }
-  }
-  return true; // Outside ordering window
-}
-
-// === /voice route for Twilio ===
-app.get('/voice', (req, res) => {
-  const useFallback = isPastCutoff(restaurantHours);
-  const selectedAgentId = useFallback ? ELEVENLABS_FALLBACK_AGENT : ELEVENLABS_MAIN_AGENT;
-  console.log("📞 Selected ElevenLabs Agent:", selectedAgentId);
-
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Redirect>https://api.elevenlabs.io/twilio/inbound_call?agent_id=${selectedAgentId}</Redirect>
-</Response>`;
-
-  res.type('text/xml');
-  res.send(twiml);
-});
 
 function extractOrderFromTranscript(transcript) {
   const order = {
@@ -106,16 +57,23 @@ function extractOrderFromTranscript(transcript) {
 
 app.post('/post-call', async (req, res) => {
   const data = req.body;
+
   console.log('✅ Webhook received');
   console.log('Call ID:', data?.data?.conversation_id);
   console.log('Transcript Status:', data?.data?.status);
+  console.log('Formatted Conversation:\n');
 
   const transcript = data?.data?.transcript || [];
-  transcript.forEach(turn => {
-    if (turn.role && turn.message) {
-      console.log(`${turn.role === 'agent' ? 'Agent' : 'Customer'}: "${turn.message}"`);
-    }
-  });
+
+  if (transcript.length > 0) {
+    transcript.forEach(turn => {
+      if (turn.role && turn.message) {
+        console.log(`${turn.role === 'agent' ? 'Agent' : 'Customer'}: "${turn.message}"`);
+      }
+    });
+  } else {
+    console.log('⚠️ No transcript found.');
+  }
 
   if (data?.data?.analysis?.transcript_summary) {
     console.log('\nSummary:');
@@ -136,6 +94,7 @@ app.post('/post-call', async (req, res) => {
         },
         body: JSON.stringify({ order: { ...detectedOrder } })
       });
+
       const result = await response.json();
       console.log('✅ Toast API Response:', result);
     } catch (err) {
@@ -165,6 +124,6 @@ app.post('/post-call', async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`✅ Server is listening on port ${port} (v1.07+log)`);
+  console.log(`✅ Server is listening on port ${port}`);
 });
 
