@@ -1,14 +1,14 @@
-// v1.05-clean — Original Toast + Supabase Save — no /voice
+// v1.06 — Added /voice TwiML route that plays background ambience and connects to ElevenLabs
 
 const express = require('express');
 const bodyParser = require('body-parser');
 const fetch = require('node-fetch');
 const { createClient } = require('@supabase/supabase-js');
+const { twiml: { VoiceResponse } } = require('twilio');
 
 const app = express();
 const port = process.env.PORT || 3000;
-app.use(express.static('public'));
-// === Hardcoded Toast test config ===
+
 const TOAST_API_KEY = 'your-test-toast-api-key';
 const TOAST_LOCATION_ID = 'test-location-id';
 const TOAST_API_URL = `https://toast-api.example.com/locations/${TOAST_LOCATION_ID}/orders`;
@@ -121,6 +121,17 @@ app.post('/post-call', async (req, res) => {
   }
 
   res.status(200).send('Webhook received');
+});
+
+// 🎵 Serve TwiML with <Play> + ElevenLabs stream
+app.get('/voice', (req, res) => {
+  const response = new VoiceResponse();
+  response.play({ loop: 999 }, 'https://post-call-webhook-production.up.railway.app/restaurant_looped_10min.mp3');
+  response.connect().stream({
+    url: 'wss://api.elevenlabs.io/twilio/inbound_call?agent_id=agent_01jxztfvaqed3bk0wtd0wngpwj'
+  });
+  res.type('text/xml');
+  res.send(response.toString());
 });
 
 app.listen(port, () => {
