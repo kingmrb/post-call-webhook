@@ -7,7 +7,7 @@ const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 const port = process.env.PORT || 3000;
-
+app.use(express.static('public'));
 // === Hardcoded Toast test config ===
 const TOAST_API_KEY = 'your-test-toast-api-key';
 const TOAST_LOCATION_ID = 'test-location-id';
