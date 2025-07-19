@@ -289,7 +289,7 @@ Return JSON array:
         model: 'gpt-3.5-turbo',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.1,
-        max_tokens: 2000
+        max_tokens: 2000  // Increased from 1000
       })
     });
 
@@ -342,7 +342,8 @@ function convertAIParsedToItems(parsedOrder) {
         modifications.push(`spice: ${spiceLevel}`);
       }
       
-      addItemToOrder(items, menuItemKey, quantity, price, modifications);
+      // Don't add duplicate log - addItemToOrder already logs
+      // console.log(`  ✅ Added: ${menuItemKey} - Price: ${price}`);
     } else {
       console.log(`  ❌ Menu item not found: ${menuItemKey}`);
     }
@@ -378,10 +379,7 @@ function extractSpiceLevel(text) {
 function cleanItemText(text) {
   return text
     .replace(/\b(orders?\s+of|pieces?\s+of)\s*/gi, '')
-    // Only remove spice levels, not "hot" when it's part of "hot & sour" or "hot and sour"
-    .replace(/\b(very mild|mild|medium|spicy|extra spicy|very hot)\b(?!\s*(&|and)\s*sour)/gi, '')
-    // Don't remove "hot" if followed by "&" or "and"
-    .replace(/\bhot\b(?!\s*(&|and)\s*sour)/gi, '')
+    .replace(/\b(very mild|mild|medium|spicy|hot|extra spicy|very hot)\s*/gi, '')
     .replace(/\b(the|of|a|an)\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -477,10 +475,10 @@ function extractItemsFromTranscript(transcript) {
   // Find order confirmation
   let orderText = '';
   const patterns = [
-    /your final order is[:\s]*(.+?)(?:\.\s*is that correct|\?\s*is that correct|is that correct)/i,
-    /got it[!.]?\s*your final order is[:\s]*(.+?)(?:\.\s*is that correct|\?\s*is that correct|is that correct)/i,
-    /here's your order[:\s]*(.+?)(?:\.\s*is that correct|\?\s*is that correct|is that correct)/i,
-    /to confirm[,:]\s*(.+?)(?:\.\s*is that correct|\?\s*is that correct|is that correct)/i
+    /your final order is[:\s]*(.+?)(?:\.\s*your total|your total|\?|$)/i,
+    /got it[!.]?\s*your final order is[:\s]*(.+?)(?:\.\s*your total|your total|\?|$)/i,
+    /here's your order[:\s]*(.+?)(?:\.\s*your total|your total|\?|$)/i,
+    /to confirm[,:]\s*(.+?)(?:\.\s*your total|your total|\?|$)/i
   ];
   
   let lastMatchIndex = -1;
@@ -498,8 +496,6 @@ function extractItemsFromTranscript(transcript) {
   
   if (bestMatch) {
     orderText = bestMatch[1].trim();
-    // Remove any trailing period that might be before "is that correct?"
-    orderText = orderText.replace(/\.\s*$/, '');
     console.log('✅ Using order confirmation:', orderText);
   }
   
@@ -831,14 +827,6 @@ app.post('/post-call', async (req, res) => {
     console.log('Full payload:', JSON.stringify(data, null, 2));
     return res.status(200).send('✅ Webhook received - No transcript to process');
   }
-
-  // Process the transcript
-  console.log('📝 Processing transcript with', transcript.length, 'turns');
-  transcript.forEach(turn => {
-    if (turn.role && turn.message) {
-      console.log((turn.role === 'agent' ? 'Agent' : 'Customer') + ': "' + turn.message + '"');
-    }
-  });
 
   let summaryToUse = null;
   if (data?.data?.analysis?.transcript_summary) {
