@@ -1,4 +1,10 @@
-const express = require('express');
+// Process the transcript
+  console.log('📝 Processing transcript with', transcript.length, 'turns');
+  transcript.forEach(turn => {
+    if (turn.role && turn.message) {
+      console.log((turn.role === 'agent' ? 'Agent' : 'Customer') + ': "' + turn.message + '"');
+    }
+  });const express = require('express');
 const bodyParser = require('body-parser');
 const fetch = require('node-fetch');
 require('dotenv').config();
@@ -247,44 +253,39 @@ async function summarizeOrderWithAI(orderText) {
 
 CRITICAL PARSING RULES:
 1. Extract EVERY SINGLE ITEM mentioned, including drinks, breads, and sides
-2. Pay attention to quantities (two, three, five, etc.)
+2. Pay careful attention to quantities - "one"=1, "two"=2, "four"=4, etc.
 3. For biryanis and entrees, always extract spice levels (very mild, mild, spicy, extra spicy)
-4. "medium" spice = "mild", "hot" = "spicy", "very hot" = "extra spicy"
-5. If no spice level for biryani/entree, mark as "MISSING_SPICE"
-6. Items without spice requirements (drinks, breads, dosas) don't need spice_level
+4. "sixty-five" or "65" in "chicken sixty-five biryani" is part of the dish name, not quantity
+5. Items without spice requirements (drinks, breads, dosas) don't need spice_level
 
-Full Menu:
-SOUPS: Tomato Soup, Veg Hot & Sour Soup, Chicken Hot & Sour Soup
-APPETIZERS: Veg Samosas, Samosa Chaat, Onion Pakora, Mixed Veg Pakora, Gobi Manchurian, Gobi 65, Chicken 65, Chicken Majestic, Paneer 65
-ENTREES: Dal Tadka, Chana Masala, Paneer Tikka Masala, Butter Chicken, Chicken Curry, Lamb Curry, Shrimp Curry, Chicken Tikka Masala, Kadai Chicken
-BIRYANIS: Veg Dum Biryani, Chicken Dum Biryani, Lamb Biryani, Goat Dum Biryani, Paneer Biryani, Egg Biryani
-BREADS: Tandoori Roti, Butter Naan, Garlic Naan, Plain Naan, Butter Tandoori Roti
-SOUTH INDIAN: Idli, Vada, Plain Dosa, Masala Dosa, Onion Dosa, Rava Dosa
-BEVERAGES: Mango Lassi, Coke, Sprite, Diet Coke
-DESSERTS: Gulab Jamun, Rasmalai
+Common items and their correct names:
+- "spinach paneer" = "Spinach Paneer" 
+- "mixed veg curry" = "Mixed Veg Curry"
+- "aloo gobi masala" = "Aloo Gobi Masala"
+- "chicken tikka kebab" = "Chicken Tikka Kebab"
+- "chicken sixty-five biryani" or "chicken 65 biryani" = "Chicken 65 Biryani"
+- "goat dum biryani" = "Goat Dum Biryani"
+- "mango lassi" = "Mango Lassi"
 
 Order text to parse:
 "${orderText}"
 
-IMPORTANT INSTRUCTIONS:
-- Count EVERY item mentioned (if they say "two lamb curries, two masala dosas, five mango lassis" - return ALL 3 items)
-- Be extremely careful with quantities (two=2, three=3, five=5, etc.)
-- Only add spice_level for items that need it (curries, biryanis, masalas)
-- Don't add spice_level for drinks, breads, dosas, or desserts
+IMPORTANT: Parse EVERY item. If the order mentions 7 different items, return all 7 items.
 
 Return JSON array with ALL items:
 [
   {
-    "quantity": 2,
-    "item": "Lamb Curry",
-    "spice_level": "mild"
+    "quantity": 1,
+    "item": "Spinach Paneer",
+    "spice_level": "spicy"
   },
   {
     "quantity": 2,
-    "item": "Masala Dosa"
+    "item": "Chicken 65 Biryani",
+    "spice_level": "spicy"
   },
   {
-    "quantity": 5,
+    "quantity": 4,
     "item": "Mango Lassi"
   }
 ]`;
@@ -299,7 +300,7 @@ Return JSON array with ALL items:
         model: 'gpt-3.5-turbo',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.1,
-        max_tokens: 1000
+        max_tokens: 2000  // Increased from 1000
       })
     });
 
@@ -315,7 +316,10 @@ Return JSON array with ALL items:
       return null;
     }
 
-    const parsedOrder = JSON.parse(data.choices[0].message.content);
+    const aiResponse = data.choices[0].message.content;
+    console.log('🤖 Raw AI Response:', aiResponse);
+    
+    const parsedOrder = JSON.parse(aiResponse);
     
     console.log('🤖 AI Parsed Order:', JSON.stringify(parsedOrder, null, 2));
     return parsedOrder;
