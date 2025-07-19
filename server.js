@@ -1,10 +1,4 @@
-// Process the transcript
-  console.log('📝 Processing transcript with', transcript.length, 'turns');
-  transcript.forEach(turn => {
-    if (turn.role && turn.message) {
-      console.log((turn.role === 'agent' ? 'Agent' : 'Customer') + ': "' + turn.message + '"');
-    }
-  });const express = require('express');
+const express = require('express');
 const bodyParser = require('body-parser');
 const fetch = require('node-fetch');
 require('dotenv').config();
