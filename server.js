@@ -246,41 +246,36 @@ async function summarizeOrderWithAI(orderText) {
     const prompt = `You are an Indian restaurant order parser. Parse ALL items from this order text.
 
 CRITICAL PARSING RULES:
-1. Extract EVERY SINGLE ITEM mentioned, including drinks, breads, and sides
-2. Pay careful attention to quantities - "one"=1, "two"=2, "four"=4, etc.
-3. For biryanis and entrees, always extract spice levels (very mild, mild, spicy, extra spicy)
-4. "sixty-five" or "65" in "chicken sixty-five biryani" is part of the dish name, not quantity
-5. Items without spice requirements (drinks, breads, dosas) don't need spice_level
+1. Extract EVERY SINGLE ITEM with correct quantities
+2. "two chicken biryanis both with mild" = quantity: 2, NOT two separate entries
+3. Pay attention to quantity words: one=1, two=2, three=3, four=4, five=5
+4. "both" means the quantity applies to both/all items (don't create duplicates)
+5. For biryanis/entrees, extract spice levels
+6. "sixty-five" or "65" in "chicken sixty-five biryani" is part of the dish name
 
-Common items and their correct names:
+Common items:
 - "spinach paneer" = "Spinach Paneer" 
-- "mixed veg curry" = "Mixed Veg Curry"
+- "mixed veg curry" = "Mix Veg Curry"
 - "aloo gobi masala" = "Aloo Gobi Masala"
 - "chicken tikka kebab" = "Chicken Tikka Kebab"
-- "chicken sixty-five biryani" or "chicken 65 biryani" = "Chicken 65 Biryani"
+- "chicken sixty-five biryani" = "Chicken 65 Biryani"
 - "goat dum biryani" = "Goat Dum Biryani"
 - "mango lassi" = "Mango Lassi"
 
 Order text to parse:
 "${orderText}"
 
-IMPORTANT: Parse EVERY item. If the order mentions 7 different items, return all 7 items.
+IMPORTANT: 
+- If order says "two lamb curries", return ONE entry with quantity: 2
+- Never create duplicate entries for the same item
+- Parse the COMPLETE order text, don't stop early
 
-Return JSON array with ALL items:
+Return JSON array:
 [
-  {
-    "quantity": 1,
-    "item": "Spinach Paneer",
-    "spice_level": "spicy"
-  },
   {
     "quantity": 2,
     "item": "Chicken 65 Biryani",
     "spice_level": "spicy"
-  },
-  {
-    "quantity": 4,
-    "item": "Mango Lassi"
   }
 ]`;
 
@@ -347,8 +342,8 @@ function convertAIParsedToItems(parsedOrder) {
         modifications.push(`spice: ${spiceLevel}`);
       }
       
-      addItemToOrder(items, menuItemKey, quantity, price, modifications);
-      console.log(`  ✅ Added: ${menuItemKey} - Price: ${price}`);
+      // Don't add duplicate log - addItemToOrder already logs
+      // console.log(`  ✅ Added: ${menuItemKey} - Price: ${price}`);
     } else {
       console.log(`  ❌ Menu item not found: ${menuItemKey}`);
     }
@@ -575,7 +570,7 @@ async function extractItemsFromTranscriptWithAI(transcript) {
   
   console.log('🔍 Looking for "Your final order is" in conversation...');
   
-  const regex = /your final order is[:\s]+(.+?)(?:your total|let me calculate|would you like anything else|$)/gis;
+  const regex = /your final order is[:\s]+(.+?)(?:\.\s*is that correct|\?\s*is that correct|is that correct)/gis;
   const matches = [...fullConversation.matchAll(regex)];
   
   if (matches.length > 0) {
