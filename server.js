@@ -1,4 +1,10 @@
-const express = require('express');
+// Process the transcript
+  console.log('📝 Processing transcript with', transcript.length, 'turns');
+  transcript.forEach(turn => {
+    if (turn.role && turn.message) {
+      console.log((turn.role === 'agent' ? 'Agent' : 'Customer') + ': "' + turn.message + '"');
+    }
+  });const express = require('express');
 const bodyParser = require('body-parser');
 const fetch = require('node-fetch');
 require('dotenv').config();
@@ -805,12 +811,16 @@ app.get('/health', (req, res) => {
 const processedCalls = new Set();
 
 app.post('/post-call', async (req, res) => {
-  const data = req.body;
-  const transcript = data?.data?.transcript || [];
-  const callId = data?.data?.conversation_id;
-
   console.log('✅ Webhook received');
+  console.log('Request body structure:', JSON.stringify(req.body, null, 2).substring(0, 500) + '...');
+  
+  const data = req.body;
+  const transcript = data?.data?.transcript || data?.transcript || [];
+  const callId = data?.data?.conversation_id || data?.conversation_id;
+  const status = data?.data?.status || data?.status;
+
   console.log('Call ID:', callId);
+  console.log('Call Status:', status);
   
   // Check if we've already processed this call
   if (callId && processedCalls.has(callId)) {
@@ -825,12 +835,10 @@ app.post('/post-call', async (req, res) => {
     setTimeout(() => processedCalls.delete(callId), 5 * 60 * 1000);
   }
 
-  if (transcript.length > 0) {
-    transcript.forEach(turn => {
-      if (turn.role && turn.message) {
-        console.log((turn.role === 'agent' ? 'Agent' : 'Customer') + ': "' + turn.message + '"');
-      }
-    });
+  if (!transcript || transcript.length === 0) {
+    console.log('⚠️ No transcript found in webhook payload');
+    console.log('Full payload:', JSON.stringify(data, null, 2));
+    return res.status(200).send('✅ Webhook received - No transcript to process');
   }
 
   let summaryToUse = null;
@@ -890,4 +898,15 @@ app.listen(port, () => {
   console.log('🔄 Features: AI order parsing, spice level validation');
   console.log('📝 Toast integration ready (awaiting API credentials)');
   console.log('============================================');
+});
+
+// Graceful shutdown handling
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully...');
+  process.exit(0);
 });
