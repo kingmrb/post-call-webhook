@@ -192,6 +192,8 @@ const ITEM_MAPPINGS = {
   'veg pakora': 'mixed veg pakora',
   'cauliflower manchurian': 'gobi manchurian',
   'cauliflower 65': 'gobi 65',
+  'masala mirchi bajji': 'spl masala mirchi bajji',
+  'special masala mirchi bajji': 'spl masala mirchi bajji',
   
   // Entrees
   'dal': 'dal tadka',
@@ -203,6 +205,8 @@ const ITEM_MAPPINGS = {
   'saag paneer': 'spinach paneer',
   'brinjal curry': 'stuffed brinjal curry',
   'eggplant curry': 'stuffed brinjal curry',
+  'stuffed brinjal curry': 'stuffed brinjal curry',
+  'gutti vankaya curry': 'gutti vankaya curry',
   'butter paneer': 'paneer butter masala',
   'chicken masala': 'chicken tikka masala',
   'lamb saag': 'lamb spinach',
