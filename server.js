@@ -724,7 +724,7 @@ app.post('/calculate-order', async (req, res) => {
       if (menuItem && MENU_ITEMS[menuItem]) {
         let price = MENU_ITEMS[menuItem];
         
-        console.log(`  Found: ${menuItem} - Price: $${price}`);
+        console.log(`  Found: ${menuItem} - Price: ${price}`);
         
         // Check if spice level is required but missing
         if (requiresSpiceLevel(menuItem) && !spiceLevel) {
@@ -774,7 +774,7 @@ app.post('/calculate-order', async (req, res) => {
       subtotal: subtotal.toFixed(2),
       tax: tax.toFixed(2),
       total: total.toFixed(2),
-      formattedTotal: `$${total.toFixed(2)}`
+      formattedTotal: `${total.toFixed(2)}`
     };
     
     console.log('💰 Calculated totals:', response);
@@ -785,6 +785,92 @@ app.post('/calculate-order', async (req, res) => {
     res.status(500).json({ 
       error: 'Failed to calculate order total',
       message: error.message 
+    });
+  }
+});
+
+// Add the get-total endpoint for ElevenLabs live call integration
+app.post('/get-total', async (req, res) => {
+  try {
+    let data;
+    
+    // Handle different ways the data might come in
+    if (typeof req.body === 'string') {
+      data = JSON.parse(req.body);
+    } else if (req.body.body && typeof req.body.body === 'string') {
+      data = JSON.parse(req.body.body);
+    } else {
+      data = req.body;
+    }
+    
+    console.log('🔢 Live total calculation request:', JSON.stringify(data, null, 2));
+    
+    const { items } = data;
+    
+    if (!items || !Array.isArray(items)) {
+      return res.status(400).json({ 
+        error: 'Invalid request: items array is required',
+        total: "0.00"
+      });
+    }
+    
+    let subtotal = 0;
+    let itemizedList = [];
+    
+    // Process each item
+    for (const item of items) {
+      let itemName = item.name.toLowerCase();
+      let quantity = parseInt(item.quantity) || 1;
+      
+      // Find the menu item
+      let menuItem = findMenuItem(itemName);
+      
+      if (menuItem && MENU_ITEMS[menuItem]) {
+        let price = MENU_ITEMS[menuItem];
+        let itemTotal = price * quantity;
+        subtotal += itemTotal;
+        
+        itemizedList.push({
+          name: menuItem,
+          quantity: quantity,
+          price: price,
+          total: itemTotal
+        });
+        
+        console.log(`  ✓ ${quantity}x ${menuItem} @ ${price} = ${itemTotal.toFixed(2)}`);
+      } else {
+        console.log(`  ⚠️ Item not found: ${itemName} - skipping`);
+      }
+    }
+    
+    // Calculate tax and total
+    const tax = subtotal * TAX_RATE;
+    const total = subtotal + tax;
+    
+    console.log(`  Subtotal: ${subtotal.toFixed(2)}`);
+    console.log(`  Tax (6.5%): ${tax.toFixed(2)}`);
+    console.log(`  Total: ${total.toFixed(2)}`);
+    
+    // Return simple response for ElevenLabs to speak
+    const response = {
+      success: true,
+      total: total.toFixed(2),
+      formattedTotal: `${total.toFixed(2)}`,
+      subtotal: subtotal.toFixed(2),
+      tax: tax.toFixed(2),
+      itemCount: itemizedList.length,
+      items: itemizedList
+    };
+    
+    console.log('💰 Sending total response:', response);
+    res.json(response);
+    
+  } catch (error) {
+    console.error('❌ Error in get-total:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to calculate total',
+      total: "0.00"
     });
   }
 });
