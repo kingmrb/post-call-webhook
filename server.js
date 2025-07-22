@@ -194,6 +194,9 @@ const ITEM_MAPPINGS = {
   'cauliflower 65': 'gobi 65',
   'masala mirchi bajji': 'spl masala mirchi bajji',
   'special masala mirchi bajji': 'spl masala mirchi bajji',
+  'spl masala mirchi bajji': 'spl masala mirchi bajji',
+  'special masala mirchi': 'spl masala mirchi bajji',
+  'spl masala mirchi': 'spl masala mirchi bajji',
   
   // Entrees
   'dal': 'dal tadka',
@@ -207,6 +210,7 @@ const ITEM_MAPPINGS = {
   'eggplant curry': 'stuffed brinjal curry',
   'stuffed brinjal curry': 'stuffed brinjal curry',
   'gutti vankaya curry': 'gutti vankaya curry',
+  'stuffed brinjal curry / gutti vankaya curry': 'stuffed brinjal curry',
   'butter paneer': 'paneer butter masala',
   'chicken masala': 'chicken tikka masala',
   'lamb saag': 'lamb spinach',
@@ -257,14 +261,18 @@ CRITICAL PARSING RULES:
 5. For biryanis/entrees, extract spice levels
 6. "sixty-five" or "65" in "chicken sixty-five biryani" is part of the dish name
 
-Common items:
-- "spinach paneer" = "Spinach Paneer" 
-- "mixed veg curry" = "Mix Veg Curry"
-- "aloo gobi masala" = "Aloo Gobi Masala"
-- "chicken tikka kebab" = "Chicken Tikka Kebab"
-- "chicken sixty-five biryani" = "Chicken 65 Biryani"
-- "goat dum biryani" = "Goat Dum Biryani"
-- "mango lassi" = "Mango Lassi"
+IMPORTANT: Use these EXACT item names (case sensitive):
+- "spl masala mirchi bajji" or "special masala mirchi bajji" → "Spl Masala Mirchi Bajji"
+- "spinach paneer" or "palak paneer" → "Spinach Paneer" 
+- "mixed veg curry" or "mix veg curry" → "Mix Veg Curry"
+- "aloo gobi masala" → "Aloo Gobi Masala"
+- "chicken tikka kebab" → "Chicken Tikka Kebab"
+- "chicken sixty-five biryani" or "chicken 65 biryani" → "Chicken 65 Biryani"
+- "goat dum biryani" → "Goat Dum Biryani"
+- "mango lassi" → "Mango Lassi"
+- "stuffed brinjal curry" → "Stuffed Brinjal Curry"
+- "egg masala" → "Egg Masala"
+- "butter chicken" → "Butter Chicken"
 
 Order text to parse:
 "${orderText}"
@@ -273,6 +281,7 @@ IMPORTANT:
 - If order says "two lamb curries", return ONE entry with quantity: 2
 - Never create duplicate entries for the same item
 - Parse the COMPLETE order text, don't stop early
+- Use the exact capitalization shown above
 
 Return JSON array:
 [
