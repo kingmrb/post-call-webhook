@@ -888,16 +888,17 @@ app.get('/health', (req, res) => {
 const processedCalls = new Set();
 
 app.post('/post-call', async (req, res) => {
-  console.log('✅ Webhook received');
-  console.log('Request body structure:', JSON.stringify(req.body, null, 2).substring(0, 500) + '...');
+  console.log('\n' + '='.repeat(60));
+  console.log('✅ Webhook received at:', new Date().toISOString());
+  console.log('='.repeat(60));
   
   const data = req.body;
   const transcript = data?.data?.transcript || data?.transcript || [];
   const callId = data?.data?.conversation_id || data?.conversation_id;
   const status = data?.data?.status || data?.status;
 
-  console.log('Call ID:', callId);
-  console.log('Call Status:', status);
+  console.log('📞 Call ID:', callId);
+  console.log('📊 Call Status:', status);
   
   // Check if we've already processed this call
   if (callId && processedCalls.has(callId)) {
@@ -914,12 +915,12 @@ app.post('/post-call', async (req, res) => {
 
   if (!transcript || transcript.length === 0) {
     console.log('⚠️ No transcript found in webhook payload');
-    console.log('Full payload:', JSON.stringify(data, null, 2));
     return res.status(200).send('✅ Webhook received - No transcript to process');
   }
 
   // Process the transcript
-  console.log('📝 Processing transcript with', transcript.length, 'turns');
+  console.log('\n📝 Processing transcript with', transcript.length, 'turns');
+  console.log('-'.repeat(60));
   transcript.forEach(turn => {
     if (turn.role && turn.message) {
       console.log((turn.role === 'agent' ? 'Agent' : 'Customer') + ': "' + turn.message + '"');
@@ -936,15 +937,22 @@ app.post('/post-call', async (req, res) => {
 
   let summaryToUse = null;
   if (data?.data?.analysis?.transcript_summary) {
-    console.log('\n📝 AI-Generated Summary:');
+    console.log('\n📋 AI-Generated Summary:');
+    console.log('-'.repeat(60));
     console.log(data.data.analysis.transcript_summary);
+    console.log('-'.repeat(60));
     summaryToUse = data.data.analysis.transcript_summary;
   }
 
+  console.log('\n🔄 Starting order extraction...');
   const detectedOrder = await extractOrderFromSummary(summaryToUse, transcript);
 
   if (detectedOrder) {
-    console.log('\n📦 Detected ORDER:\n', JSON.stringify(detectedOrder, null, 2));
+    console.log('\n' + '='.repeat(60));
+    console.log('📦 ORDER DETECTED SUCCESSFULLY');
+    console.log('='.repeat(60));
+    console.log(JSON.stringify(detectedOrder, null, 2));
+    console.log('='.repeat(60));
 
     // Create sample Toast payload (for when you get the API details)
     const toastPayload = {
@@ -955,8 +963,10 @@ app.post('/post-call', async (req, res) => {
       status: "pending_toast_integration"
     };
 
-    console.log('\n🍞 Sample Toast Payload (Ready for future integration):');
+    console.log('\n🍞 Toast Payload (Ready for future integration):');
+    console.log('-'.repeat(60));
     console.log(JSON.stringify(toastPayload, null, 2));
+    console.log('-'.repeat(60));
     
     // TODO: When you get Toast API details, uncomment this:
     /*
