@@ -13,6 +13,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const LOG_MODE = process.env.LOG_MODE || 'summary'; // 'full' or 'summary'
 
 // Increased limits for large webhook payloads
 app.use(bodyParser.json({ limit: '50mb' }));
@@ -178,10 +179,9 @@ const SPICE_REQUIRED_ITEMS = [
 
 const TAX_RATE = 0.065;
 
-// Item mappings for common variations
+// Item mappings for common variations (optimized - removed self-mappings)
 const ITEM_MAPPINGS = {
   // Soups
-  'tomato soup': 'tomato soup',
   'veg hot sour soup': 'veg hot & sour soup',
   'chicken hot sour soup': 'chicken hot & sour soup',
   
@@ -194,7 +194,6 @@ const ITEM_MAPPINGS = {
   'cauliflower 65': 'gobi 65',
   'masala mirchi bajji': 'spl masala mirchi bajji',
   'special masala mirchi bajji': 'spl masala mirchi bajji',
-  'spl masala mirchi bajji': 'spl masala mirchi bajji',
   'special masala mirchi': 'spl masala mirchi bajji',
   'spl masala mirchi': 'spl masala mirchi bajji',
   
@@ -208,8 +207,6 @@ const ITEM_MAPPINGS = {
   'saag paneer': 'spinach paneer',
   'brinjal curry': 'stuffed brinjal curry',
   'eggplant curry': 'stuffed brinjal curry',
-  'stuffed brinjal curry': 'stuffed brinjal curry',
-  'gutti vankaya curry': 'gutti vankaya curry',
   'stuffed brinjal curry / gutti vankaya curry': 'stuffed brinjal curry',
   'butter paneer': 'paneer butter masala',
   'chicken masala': 'chicken tikka masala',
@@ -319,11 +316,15 @@ Return JSON array:
     }
 
     const aiResponse = data.choices[0].message.content;
-    console.log('🤖 Raw AI Response:', aiResponse);
+    if (LOG_MODE === 'full') {
+      console.log('🤖 Raw AI Response:', aiResponse);
+    }
     
     const parsedOrder = JSON.parse(aiResponse);
     
-    console.log('🤖 AI Parsed Order:', JSON.stringify(parsedOrder, null, 2));
+    if (LOG_MODE === 'full') {
+      console.log('🤖 AI Parsed Order:', JSON.stringify(parsedOrder, null, 2));
+    }
     return parsedOrder;
   } catch (error) {
     console.error('❌ AI summarization error:', error);
@@ -485,7 +486,9 @@ function extractItemsFromTranscript(transcript) {
   const items = [];
   const fullConversation = transcript.map(t => t.message).join(' ').toLowerCase();
   
-  console.log('🔍 Full conversation:', fullConversation);
+  if (LOG_MODE === 'full') {
+    console.log('🔍 Full conversation:', fullConversation);
+  }
   
   // Find order confirmation
   let orderText = '';
@@ -513,11 +516,15 @@ function extractItemsFromTranscript(transcript) {
     orderText = bestMatch[1].trim();
     // Remove any trailing period that might be before "is that correct?"
     orderText = orderText.replace(/\.\s*$/, '');
-    console.log('✅ Using order confirmation:', orderText);
+    if (LOG_MODE === 'full') {
+      console.log('✅ Using order confirmation:', orderText);
+    }
   }
   
   if (!orderText) {
-    console.log('🔄 No order confirmation found');
+    if (LOG_MODE === 'full') {
+      console.log('🔄 No order confirmation found');
+    }
     return items;
   }
   
@@ -532,11 +539,15 @@ function extractItemsFromTranscript(transcript) {
     }
   }
   
-  console.log('📝 Order segments:', segments);
+  if (LOG_MODE === 'full') {
+    console.log('📝 Order segments:', segments);
+  }
   
   // Process each segment
   for (const segment of segments) {
-    console.log('\n🔄 Processing:', segment);
+    if (LOG_MODE === 'full') {
+      console.log('\n🔄 Processing:', segment);
+    }
     
     let quantity = 1;
     let itemText = segment;
@@ -551,17 +562,21 @@ function extractItemsFromTranscript(transcript) {
     
     // Extract spice level
     spiceLevel = extractSpiceLevel(segment);
-    if (spiceLevel) {
+    if (spiceLevel && LOG_MODE === 'full') {
       console.log('🌶️ Spice level:', spiceLevel);
     }
     
     // Clean item text
     const cleanedText = cleanItemText(itemText);
-    console.log('🧹 Cleaned:', cleanedText);
+    if (LOG_MODE === 'full') {
+      console.log('🧹 Cleaned:', cleanedText);
+    }
     
     // Find menu item
     const menuItem = findMenuItem(cleanedText);
-    console.log('🎯 Found:', menuItem);
+    if (LOG_MODE === 'full') {
+      console.log('🎯 Found:', menuItem);
+    }
     
     if (menuItem && MENU_ITEMS[menuItem]) {
       const price = MENU_ITEMS[menuItem];
@@ -573,7 +588,7 @@ function extractItemsFromTranscript(transcript) {
       }
       
       addItemToOrder(items, menuItem, quantity, price, modifications);
-    } else {
+    } else if (LOG_MODE === 'full') {
       console.log('❌ Could not match:', cleanedText);
     }
   }
@@ -585,7 +600,9 @@ function extractItemsFromTranscript(transcript) {
 async function extractItemsFromTranscriptWithAI(transcript) {
   const fullConversation = transcript.map(t => t.message).join(' ').toLowerCase();
   
-  console.log('🔍 Looking for "Your final order is" in conversation...');
+  if (LOG_MODE === 'full') {
+    console.log('🔍 Looking for "Your final order is" in conversation...');
+  }
   
   const regex = /your final order is[:\s]+(.+?)(?:\.\s*is that correct|\?\s*is that correct|is that correct)/gis;
   const matches = [...fullConversation.matchAll(regex)];
@@ -596,30 +613,46 @@ async function extractItemsFromTranscriptWithAI(transcript) {
     
     orderText = orderText.replace(/\.\s*$/, '');
     
-    console.log(`✅ Found ${matches.length} order confirmation(s), using the LAST one`);
-    console.log('📍 Order text:', orderText);
+    if (LOG_MODE === 'full') {
+      console.log(`✅ Found ${matches.length} order confirmation(s), using the LAST one`);
+      console.log('📍 Order text:', orderText);
+    }
     
-    // Try AI parsing first
-    const aiParsedOrder = await summarizeOrderWithAI(orderText);
+    // Check if order is simple enough for regex parsing (optimization)
+    const hasComplexItems = orderText.includes('both') || orderText.includes('all') || 
+                           orderText.match(/\d+\s+\w+\s+with\s+\w+\s+spice/i);
     
-    if (aiParsedOrder && aiParsedOrder.length > 0) {
-      console.log('🤖 Using AI-parsed order');
-      return convertAIParsedToItems(aiParsedOrder);
+    // Only use AI for complex orders
+    if (hasComplexItems || OPENAI_API_KEY) {
+      const aiParsedOrder = await summarizeOrderWithAI(orderText);
+      
+      if (aiParsedOrder && aiParsedOrder.length > 0) {
+        if (LOG_MODE === 'full') {
+          console.log('🤖 Using AI-parsed order');
+        }
+        return convertAIParsedToItems(aiParsedOrder);
+      }
     }
   }
   
-  console.log('🔄 Falling back to regex parsing');
+  if (LOG_MODE === 'full') {
+    console.log('🔄 Falling back to regex parsing');
+  }
   return null;
 }
 
 async function extractOrderFromSummary(summary, fallbackTranscript) {
   // Try AI parsing first
   if (fallbackTranscript && fallbackTranscript.length > 0) {
-    console.log('🎯 Trying AI-enhanced transcript parsing');
+    if (LOG_MODE === 'full') {
+      console.log('🎯 Trying AI-enhanced transcript parsing');
+    }
     const aiItems = await extractItemsFromTranscriptWithAI(fallbackTranscript);
     
     if (aiItems && aiItems.length > 0) {
-      console.log('✅ Successfully extracted items using AI');
+      if (LOG_MODE === 'full') {
+        console.log('✅ Successfully extracted items using AI');
+      }
       
       const contactInfo = extractContactInfo(fallbackTranscript);
       const totals = calculateTotals(aiItems);
@@ -654,7 +687,9 @@ async function extractOrderFromSummary(summary, fallbackTranscript) {
   }
   
   // Fallback to original regex parsing
-  console.log('🔄 Falling back to regex parsing');
+  if (LOG_MODE === 'full') {
+    console.log('🔄 Falling back to regex parsing');
+  }
   if (fallbackTranscript && fallbackTranscript.length > 0) {
     const transcriptItems = extractItemsFromTranscript(fallbackTranscript);
     
@@ -897,109 +932,139 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Store processed call IDs to prevent duplicates
-const processedCalls = new Set();
+// Store processed call IDs to prevent duplicates (with size limit)
+const processedCalls = new Map(); // Changed to Map for better memory management
+const MAX_PROCESSED_CALLS = 100;
+
+// Helper function to manage processed calls
+function addProcessedCall(callId) {
+  if (processedCalls.size >= MAX_PROCESSED_CALLS) {
+    // Remove oldest entry
+    const firstKey = processedCalls.keys().next().value;
+    processedCalls.delete(firstKey);
+  }
+  processedCalls.set(callId, Date.now());
+}
 
 app.post('/post-call', async (req, res) => {
-  console.log('\n' + '='.repeat(60));
-  console.log('✅ Webhook received at:', new Date().toISOString());
-  console.log('='.repeat(60));
+  if (LOG_MODE === 'full') {
+    console.log('\n' + '='.repeat(60));
+    console.log('✅ Webhook received at:', new Date().toISOString());
+    console.log('='.repeat(60));
+  }
   
   const data = req.body;
   const transcript = data?.data?.transcript || data?.transcript || [];
   const callId = data?.data?.conversation_id || data?.conversation_id;
   const status = data?.data?.status || data?.status;
 
-  console.log('📞 Call ID:', callId);
-  console.log('📊 Call Status:', status);
+  if (LOG_MODE === 'full') {
+    console.log('📞 Call ID:', callId);
+    console.log('📊 Call Status:', status);
+  }
   
   // Check if we've already processed this call
   if (callId && processedCalls.has(callId)) {
-    console.log('⏭️ Skipping duplicate webhook for call:', callId);
+    if (LOG_MODE === 'full') {
+      console.log('⏭️ Skipping duplicate webhook for call:', callId);
+    }
     return res.status(200).send('✅ Duplicate webhook ignored');
   }
   
   // Mark this call as processed
   if (callId) {
-    processedCalls.add(callId);
-    // Clean up old entries after 5 minutes to prevent memory bloat
-    setTimeout(() => processedCalls.delete(callId), 5 * 60 * 1000);
+    addProcessedCall(callId);
   }
 
   if (!transcript || transcript.length === 0) {
-    console.log('⚠️ No transcript found in webhook payload');
+    if (LOG_MODE === 'full') {
+      console.log('⚠️ No transcript found in webhook payload');
+    }
     return res.status(200).send('✅ Webhook received - No transcript to process');
   }
 
-  // Process the transcript
-  console.log('\n📝 Processing transcript with', transcript.length, 'turns');
-  console.log('-'.repeat(60));
-  transcript.forEach(turn => {
-    if (turn.role && turn.message) {
-      console.log((turn.role === 'agent' ? 'Agent' : 'Customer') + ': "' + turn.message + '"');
+  // In summary mode, only show order confirmation exchanges
+  if (LOG_MODE === 'summary') {
+    console.log('\n' + '='.repeat(60));
+    console.log('📞 Call Summary - ID:', callId);
+    console.log('='.repeat(60));
+    
+    // Find order confirmation
+    const orderConfirmationIndex = transcript.findIndex(turn => 
+      turn.message && turn.message.includes('Your final order is')
+    );
+    
+    if (orderConfirmationIndex !== -1) {
+      console.log('\n📝 Order Confirmation:');
+      console.log('Agent:', transcript[orderConfirmationIndex].message);
+      
+      // Look for customer confirmation
+      if (orderConfirmationIndex + 1 < transcript.length) {
+        console.log('Customer:', transcript[orderConfirmationIndex + 1].message);
+      }
     }
-  });
-
-  // Process the transcript
-  console.log('📝 Processing transcript with', transcript.length, 'turns');
-  transcript.forEach(turn => {
-    if (turn.role && turn.message) {
-      console.log((turn.role === 'agent' ? 'Agent' : 'Customer') + ': "' + turn.message + '"');
-    }
-  });
+  } else {
+    // Full logging mode
+    console.log('\n📝 Processing transcript with', transcript.length, 'turns');
+    console.log('-'.repeat(60));
+    transcript.forEach(turn => {
+      if (turn.role && turn.message) {
+        console.log((turn.role === 'agent' ? 'Agent' : 'Customer') + ': "' + turn.message + '"');
+      }
+    });
+  }
 
   let summaryToUse = null;
   if (data?.data?.analysis?.transcript_summary) {
-    console.log('\n📋 AI-Generated Summary:');
-    console.log('-'.repeat(60));
-    console.log(data.data.analysis.transcript_summary);
-    console.log('-'.repeat(60));
     summaryToUse = data.data.analysis.transcript_summary;
+    
+    if (LOG_MODE === 'summary') {
+      console.log('\n📋 AI Summary:', summaryToUse);
+    } else {
+      console.log('\n📋 AI-Generated Summary:');
+      console.log('-'.repeat(60));
+      console.log(summaryToUse);
+      console.log('-'.repeat(60));
+    }
   }
 
-  console.log('\n🔄 Starting order extraction...');
+  if (LOG_MODE === 'full') {
+    console.log('\n🔄 Starting order extraction...');
+  }
+  
   const detectedOrder = await extractOrderFromSummary(summaryToUse, transcript);
 
   if (detectedOrder) {
-    console.log('\n' + '='.repeat(60));
-    console.log('📦 ORDER DETECTED SUCCESSFULLY');
-    console.log('='.repeat(60));
-    console.log(JSON.stringify(detectedOrder, null, 2));
-    console.log('='.repeat(60));
+    if (LOG_MODE === 'summary') {
+      console.log('\n📦 Order Detected:');
+      console.log('Customer:', detectedOrder.customer_name, '| Phone:', detectedOrder.phone);
+      console.log('Type:', detectedOrder.order_type, '| Ready in:', detectedOrder.pickup_time);
+      console.log('Items:', detectedOrder.items.length);
+      console.log('Total:', detectedOrder.total);
+      
+      // Show toast payload in compact format
+      console.log('\n🍞 Ready for Toast Integration');
+    } else {
+      console.log('\n' + '='.repeat(60));
+      console.log('📦 ORDER DETECTED SUCCESSFULLY');
+      console.log('='.repeat(60));
+      console.log(JSON.stringify(detectedOrder, null, 2));
+      console.log('='.repeat(60));
 
-    // Create sample Toast payload (for when you get the API details)
-    const toastPayload = {
-      restaurant: "Roti's Indian Restaurant",
-      order: detectedOrder,
-      timestamp: new Date().toISOString(),
-      source: "Voice AI Agent",
-      status: "pending_toast_integration"
-    };
+      // Create sample Toast payload
+      const toastPayload = {
+        restaurant: "Roti's Indian Restaurant",
+        order: detectedOrder,
+        timestamp: new Date().toISOString(),
+        source: "Voice AI Agent",
+        status: "pending_toast_integration"
+      };
 
-    console.log('\n🍞 Toast Payload (Ready for future integration):');
-    console.log('-'.repeat(60));
-    console.log(JSON.stringify(toastPayload, null, 2));
-    console.log('-'.repeat(60));
-    
-    // TODO: When you get Toast API details, uncomment this:
-    /*
-    try {
-      const response = await fetch(TOAST_API_URL, {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + TOAST_API_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(toastPayload)
-      });
-
-      const result = await response.json();
-      console.log('✅ Toast API Response:', result);
-    } catch (err) {
-      console.error('❌ Error sending order to Toast:', err.message);
+      console.log('\n🍞 Toast Payload (Ready for future integration):');
+      console.log('-'.repeat(60));
+      console.log(JSON.stringify(toastPayload, null, 2));
+      console.log('-'.repeat(60));
     }
-    */
-    
   } else {
     console.log('❌ No order detected.');
   }
