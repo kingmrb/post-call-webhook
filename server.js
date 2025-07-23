@@ -827,7 +827,7 @@ async function extractOrderFromSummary(summary, fallbackTranscript, callId) {
       address: contactInfo.address || 'N/A',
       notes: '',
       payment_link: '',
-      subtotal: '
+      subtotal: 
   
   // Fallback to AI parsing if no stored order
   if (fallbackTranscript && fallbackTranscript.length > 0) {
