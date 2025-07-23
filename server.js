@@ -4,9 +4,9 @@ const fetch = require('node-fetch');
 require('dotenv').config();
 
 // ============================================
-// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.6
+// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.7
 // Last Updated: July 2025
-// Features: AI order parsing, default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, contact info extraction only from last confirmed AI confirmation
+// Features: AI order parsing, default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, contact info extraction only from last confirmed AI confirmation, robust transcript handling
 // ============================================
 
 const app = express();
@@ -486,6 +486,12 @@ function extractContactInfo(transcript) {
   let name = 'N/A';
   let address = 'N/A';
   
+  // Validate transcript
+  if (!Array.isArray(transcript) || transcript.length === 0) {
+    console.log('⚠️ Invalid or empty transcript in extractContactInfo');
+    return { phone, name, address };
+  }
+  
   // Step 1: Find the last AI confirmation message with name and phone number
   let confirmationIndex = -1;
   let confirmationMessage = null;
@@ -494,6 +500,7 @@ function extractContactInfo(transcript) {
   for (let i = transcript.length - 1; i >= 0; i--) {
     const turn = transcript[i];
     if (turn.role === 'agent' && 
+        typeof turn.message === 'string' && 
         /to confirm, your name is\s+.*?\s+and your phone number is\s+.*?is that correct\?/i.test(turn.message)) {
       confirmationIndex = i;
       confirmationMessage = turn.message;
@@ -505,6 +512,7 @@ function extractContactInfo(transcript) {
   if (confirmationIndex !== -1 && confirmationIndex + 1 < transcript.length) {
     const customerResponse = transcript[confirmationIndex + 1];
     if (customerResponse.role === 'user' && 
+        typeof customerResponse.message === 'string' && 
         /yes|correct|right|confirm|confirmed|that.?s right|yeah/i.test(customerResponse.message)) {
       if (LOG_MODE === 'full') {
         console.log('✅ Found last AI confirmation:', confirmationMessage);
@@ -546,7 +554,7 @@ function extractContactInfo(transcript) {
       }
     } else {
       if (LOG_MODE === 'full') {
-        console.log('⚠️ Customer confirmation not found for:', confirmationMessage);
+        console.log('⚠️ Customer confirmation not found or invalid for:', confirmationMessage);
       }
     }
   } else {
@@ -555,9 +563,9 @@ function extractContactInfo(transcript) {
     }
   }
   
-  // Step 5: Extract address from user turns (unchanged)
+  // Step 5: Extract address from user turns
   for (const turn of transcript) {
-    if (turn.role === 'user') {
+    if (turn.role === 'user' && typeof turn.message === 'string') {
       const addressMatch = turn.message.match(/(?:address is|live at|deliver to)\s+(.+?)(?:\.|,|$)/i);
       if (addressMatch) {
         address = addressMatch[1].trim();
@@ -565,6 +573,8 @@ function extractContactInfo(transcript) {
           console.log('🏠 Extracted address:', address);
         }
       }
+    } else if (LOG_MODE === 'full' && turn.role === 'user') {
+      console.log('⚠️ Skipping invalid user turn in address extraction:', JSON.stringify(turn));
     }
   }
   
@@ -599,7 +609,18 @@ function addItemToOrder(items, itemName, quantity, price, modifications = []) {
 
 function extractItemsFromTranscript(transcript) {
   const items = [];
-  const fullConversation = transcript.map(t => t.message).join(' ').toLowerCase();
+  
+  // Validate transcript
+  if (!Array.isArray(transcript) || transcript.length === 0) {
+    console.log('⚠️ Invalid or empty transcript in extractItemsFromTranscript');
+    return items;
+  }
+  
+  const fullConversation = transcript
+    .filter(turn => typeof turn.message === 'string')
+    .map(t => t.message)
+    .join(' ')
+    .toLowerCase();
   
   if (LOG_MODE === 'full') {
     console.log('🔍 Full conversation:', fullConversation);
@@ -634,7 +655,9 @@ function extractItemsFromTranscript(transcript) {
     orderText = orderText.replace(/\.\s*$/, '');
     // Find the index of the turn containing the confirmation
     confirmationIndex = transcript.findIndex(turn => 
-      turn.role === 'agent' && turn.message.toLowerCase().includes(orderText.toLowerCase())
+      turn.role === 'agent' && 
+      typeof turn.message === 'string' && 
+      turn.message.toLowerCase().includes(orderText.toLowerCase())
     );
     if (LOG_MODE === 'full') {
       console.log('✅ Using final order confirmation:', orderText);
@@ -654,6 +677,7 @@ function extractItemsFromTranscript(transcript) {
   if (confirmationIndex !== -1 && confirmationIndex + 1 < transcript.length) {
     const customerResponse = transcript[confirmationIndex + 1];
     if (customerResponse.role === 'user' && 
+        typeof customerResponse.message === 'string' && 
         /yes|correct|right|confirm|confirmed|that.?s right|yeah/i.test(customerResponse.message)) {
       isCustomerConfirmed = true;
       if (LOG_MODE === 'full') {
@@ -775,7 +799,17 @@ function extractItemsFromTranscript(transcript) {
 
 // Enhanced extraction with AI
 async function extractItemsFromTranscriptWithAI(transcript) {
-  const fullConversation = transcript.map(t => t.message).join(' ').toLowerCase();
+  // Validate transcript
+  if (!Array.isArray(transcript) || transcript.length === 0) {
+    console.log('⚠️ Invalid or empty transcript in extractItemsFromTranscriptWithAI');
+    return [];
+  }
+  
+  const fullConversation = transcript
+    .filter(turn => typeof turn.message === 'string')
+    .map(t => t.message)
+    .join(' ')
+    .toLowerCase();
   
   if (LOG_MODE === 'full') {
     console.log('🔍 Looking for "Your final order is" in conversation...');
@@ -792,7 +826,9 @@ async function extractItemsFromTranscriptWithAI(transcript) {
     
     // Find the turn index of the final confirmation
     const confirmationIndex = transcript.findIndex(turn => 
-      turn.role === 'agent' && turn.message.toLowerCase().includes(orderText.toLowerCase())
+      turn.role === 'agent' && 
+      typeof turn.message === 'string' && 
+      turn.message.toLowerCase().includes(orderText.toLowerCase())
     );
     
     // Verify customer confirmation
@@ -800,6 +836,7 @@ async function extractItemsFromTranscriptWithAI(transcript) {
     if (confirmationIndex !== -1 && confirmationIndex + 1 < transcript.length) {
       const customerResponse = transcript[confirmationIndex + 1];
       if (customerResponse.role === 'user' && 
+          typeof customerResponse.message === 'string' && 
           /yes|correct|right|confirm|confirmed|that.?s right|yeah/i.test(customerResponse.message)) {
         isCustomerConfirmed = true;
         if (LOG_MODE === 'full') {
@@ -838,7 +875,7 @@ async function extractItemsFromTranscriptWithAI(transcript) {
 
 async function extractOrderFromSummary(summary, fallbackTranscript) {
   // Try transcript parsing FIRST (most reliable)
-  if (fallbackTranscript && fallbackTranscript.length > 0) {
+  if (fallbackTranscript && Array.isArray(fallbackTranscript) && fallbackTranscript.length > 0) {
     if (LOG_MODE === 'full') {
       console.log('🎯 Trying transcript parsing first');
     }
@@ -926,6 +963,7 @@ async function extractOrderFromSummary(summary, fallbackTranscript) {
   }
   
   // Final fallback - try to parse from summary if no transcript success
+  console.log('⚠️ No valid transcript items found, returning null');
   return null;
 }
 
@@ -1132,7 +1170,7 @@ app.post('/get-total', async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
-    service: 'Roti\'s Indian Restaurant Price Calculator v1.6',
+    service: 'Roti\'s Indian Restaurant Price Calculator v1.7',
     timestamp: new Date().toISOString()
   });
 });
@@ -1166,6 +1204,7 @@ app.post('/post-call', async (req, res) => {
   if (LOG_MODE === 'full') {
     console.log('📞 Call ID:', callId);
     console.log('📊 Call Status:', status);
+    console.log('📝 Raw transcript:', JSON.stringify(transcript, null, 2));
   }
   
   // Check if we've already processed this call
@@ -1181,11 +1220,20 @@ app.post('/post-call', async (req, res) => {
     addProcessedCall(callId);
   }
 
-  if (!transcript || transcript.length === 0) {
+  if (!transcript || !Array.isArray(transcript) || transcript.length === 0) {
     if (LOG_MODE === 'full') {
       console.log('⚠️ No transcript found in webhook payload');
     }
     return res.status(200).send('✅ Webhook received - No transcript to process');
+  }
+
+  // Validate transcript entries
+  const validTranscript = transcript.filter(turn => 
+    turn && typeof turn === 'object' && turn.role && typeof turn.message === 'string'
+  );
+  if (validTranscript.length < transcript.length) {
+    console.log('⚠️ Found invalid transcript entries:', 
+      transcript.filter(turn => !turn || typeof turn !== 'object' || !turn.role || typeof turn.message !== 'string'));
   }
 
   // In summary mode, only show order confirmation exchanges
@@ -1196,9 +1244,10 @@ app.post('/post-call', async (req, res) => {
     
     // Find final order confirmation
     let confirmationIndex = -1;
-    for (let i = transcript.length - 1; i >= 0; i--) {
-      if (transcript[i].role === 'agent' && 
-          /your final order is|got it.*?your final order is|here's your order|to confirm/i.test(transcript[i].message)) {
+    for (let i = validTranscript.length - 1; i >= 0; i--) {
+      if (validTranscript[i].role === 'agent' && 
+          typeof validTranscript[i].message === 'string' && 
+          /your final order is|got it.*?your final order is|here's your order|to confirm/i.test(validTranscript[i].message)) {
         confirmationIndex = i;
         break;
       }
@@ -1206,21 +1255,19 @@ app.post('/post-call', async (req, res) => {
     
     if (confirmationIndex !== -1) {
       console.log('\n📝 Final Order Confirmation:');
-      console.log('Agent:', transcript[confirmationIndex].message);
+      console.log('Agent:', validTranscript[confirmationIndex].message);
       
       // Look for customer confirmation
-      if (confirmationIndex + 1 < transcript.length) {
-        console.log('Customer:', transcript[confirmationIndex + 1].message);
+      if (confirmationIndex + 1 < validTranscript.length) {
+        console.log('Customer:', validTranscript[confirmationIndex + 1].message);
       }
     }
   } else {
     // Full logging mode
-    console.log('\n📝 Processing transcript with', transcript.length, 'turns');
+    console.log('\n📝 Processing transcript with', validTranscript.length, 'valid turns');
     console.log('-'.repeat(60));
-    transcript.forEach(turn => {
-      if (turn.role && turn.message) {
-        console.log((turn.role === 'agent' ? 'Agent' : 'Customer') + ': "' + turn.message + '"');
-      }
+    validTranscript.forEach(turn => {
+      console.log((turn.role === 'agent' ? 'Agent' : 'Customer') + ': "' + turn.message + '"');
     });
   }
 
@@ -1242,7 +1289,7 @@ app.post('/post-call', async (req, res) => {
     console.log('\n🔄 Starting order extraction...');
   }
   
-  const detectedOrder = await extractOrderFromSummary(summaryToUse, transcript);
+  const detectedOrder = await extractOrderFromSummary(summaryToUse, validTranscript);
 
   if (detectedOrder) {
     if (LOG_MODE === 'summary') {
@@ -1284,9 +1331,9 @@ app.post('/post-call', async (req, res) => {
 
 app.listen(port, () => {
   console.log('============================================');
-  console.log('✅ Roti\'s Indian Restaurant Server v1.6 - Started Successfully');
+  console.log('✅ Roti\'s Indian Restaurant Server v1.7 - Started Successfully');
   console.log(`📍 Listening on port ${port}`);
-  console.log('🔄 Features: AI order parsing, default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, contact info extraction only from last confirmed AI confirmation');
+  console.log('🔄 Features: AI order parsing, default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, contact info extraction only from last confirmed AI confirmation, robust transcript handling');
   console.log('📝 Toast integration ready (awaiting API credentials)');
   console.log('============================================');
 });
