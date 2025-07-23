@@ -642,10 +642,54 @@ async function extractItemsFromTranscriptWithAI(transcript) {
 }
 
 async function extractOrderFromSummary(summary, fallbackTranscript) {
-  // Try AI parsing first
+  // Try transcript parsing FIRST (most reliable)
   if (fallbackTranscript && fallbackTranscript.length > 0) {
     if (LOG_MODE === 'full') {
-      console.log('🎯 Trying AI-enhanced transcript parsing');
+      console.log('🎯 Trying transcript parsing first');
+    }
+    
+    // Try regex parsing first since it's more reliable for exact order confirmations
+    const transcriptItems = extractItemsFromTranscript(fallbackTranscript);
+    
+    if (transcriptItems && transcriptItems.length > 0) {
+      if (LOG_MODE === 'full') {
+        console.log('✅ Successfully extracted items using transcript parsing');
+      }
+      
+      const contactInfo = extractContactInfo(fallbackTranscript);
+      const totals = calculateTotals(transcriptItems);
+      
+      let pickupTime = 'ASAP';
+      let orderType = 'pickup';
+      
+      if (typeof summary === 'string') {
+        const summaryText = summary.toLowerCase();
+        const timeMatch = summaryText.match(/(\d+)\s+(minute|min|hour|hr)/i);
+        if (timeMatch) {
+          pickupTime = timeMatch[1] + ' ' + timeMatch[2] + (timeMatch[1] !== '1' ? 's' : '');
+        }
+        
+        if (/delivery|deliver/.test(summaryText)) {
+          orderType = 'delivery';
+        }
+      }
+      
+      return {
+        customer_name: contactInfo.name || 'N/A',
+        phone: contactInfo.phone || 'N/A',
+        items: transcriptItems,
+        pickup_time: pickupTime,
+        order_type: orderType,
+        address: contactInfo.address || 'N/A',
+        notes: '',
+        payment_link: '',
+        ...totals
+      };
+    }
+    
+    // Only try AI parsing if transcript parsing fails
+    if (LOG_MODE === 'full') {
+      console.log('🎯 Falling back to AI-enhanced transcript parsing');
     }
     const aiItems = await extractItemsFromTranscriptWithAI(fallbackTranscript);
     
@@ -686,46 +730,7 @@ async function extractOrderFromSummary(summary, fallbackTranscript) {
     }
   }
   
-  // Fallback to original regex parsing
-  if (LOG_MODE === 'full') {
-    console.log('🔄 Falling back to regex parsing');
-  }
-  if (fallbackTranscript && fallbackTranscript.length > 0) {
-    const transcriptItems = extractItemsFromTranscript(fallbackTranscript);
-    
-    if (transcriptItems && transcriptItems.length > 0) {
-      const contactInfo = extractContactInfo(fallbackTranscript);
-      const totals = calculateTotals(transcriptItems);
-      
-      let pickupTime = 'ASAP';
-      let orderType = 'pickup';
-      
-      if (typeof summary === 'string') {
-        const summaryText = summary.toLowerCase();
-        const timeMatch = summaryText.match(/(\d+)\s+(minute|min|hour|hr)/i);
-        if (timeMatch) {
-          pickupTime = timeMatch[1] + ' ' + timeMatch[2] + (timeMatch[1] !== '1' ? 's' : '');
-        }
-        
-        if (/delivery|deliver/.test(summaryText)) {
-          orderType = 'delivery';
-        }
-      }
-      
-      return {
-        customer_name: contactInfo.name || 'N/A',
-        phone: contactInfo.phone || 'N/A',
-        items: transcriptItems,
-        pickup_time: pickupTime,
-        order_type: orderType,
-        address: contactInfo.address || 'N/A',
-        notes: '',
-        payment_link: '',
-        ...totals
-      };
-    }
-  }
-  
+  // Final fallback - try to parse from summary if no transcript success
   return null;
 }
 
