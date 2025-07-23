@@ -767,6 +767,7 @@ async function extractOrderFromSummary(summary, fallbackTranscript) {
       notes: '',
       payment_link: '',
       subtotal: '$' + orderSubtotal,
+    }
 
 // Add the calculate-order endpoint for ElevenLabs integration
 app.post('/calculate-order', async (req, res) => {
