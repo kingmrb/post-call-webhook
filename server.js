@@ -4,9 +4,9 @@ const fetch = require('node-fetch');
 require('dotenv').config();
 
 // ============================================
-// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.1
+// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.0
 // Last Updated: January 2025
-// Features: Enhanced order capture from get-total endpoint
+// Features: Spice level handling, AI order parsing, simplified without Toast
 // ============================================
 
 const app = express();
@@ -18,10 +18,6 @@ const LOG_MODE = process.env.LOG_MODE || 'summary'; // 'full' or 'summary'
 // Increased limits for large webhook payloads
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
-
-// Store for capturing order data from get-total calls
-const activeOrders = new Map(); // callId -> order data
-const MAX_ACTIVE_ORDERS = 50;
 
 // Complete menu with all items from Roti's
 const MENU_ITEMS = {
@@ -243,134 +239,6 @@ const QUANTITY_WORDS = {
   one: 1, two: 2, three: 3, four: 4, five: 5, 
   six: 6, seven: 7, eight: 8, nine: 9, ten: 10 
 };
-
-// Helper function to manage active orders
-function addActiveOrder(callId, orderData) {
-  if (activeOrders.size >= MAX_ACTIVE_ORDERS) {
-    // Remove oldest entry
-    const firstKey = activeOrders.keys().next().value;
-    activeOrders.delete(firstKey);
-  }
-  activeOrders.set(callId, {
-    ...orderData,
-    timestamp: Date.now()
-  });
-  
-  if (LOG_MODE === 'full') {
-    console.log(`💾 Stored order for call ${callId}:`, orderData);
-  }
-}
-
-// Enhanced get-total endpoint with order capture
-app.post('/get-total', async (req, res) => {
-  try {
-    let data;
-    
-    // Handle different ways the data might come in
-    if (typeof req.body === 'string') {
-      data = JSON.parse(req.body);
-    } else if (req.body.body && typeof req.body.body === 'string') {
-      data = JSON.parse(req.body.body);
-    } else {
-      data = req.body;
-    }
-    
-    console.log('🔢 Live total calculation request:', JSON.stringify(data, null, 2));
-    
-    const { items, conversation_id, call_id } = data;
-    const callId = conversation_id || call_id;
-    
-    if (!items || !Array.isArray(items)) {
-      return res.status(400).json({ 
-        error: 'Invalid request: items array is required',
-        total: "0.00"
-      });
-    }
-    
-    let subtotal = 0;
-    let itemizedList = [];
-    
-    // Process each item
-    for (const item of items) {
-      let itemName = item.name.toLowerCase();
-      let quantity = parseInt(item.quantity) || 1;
-      let spiceLevel = item.spice_level || item.spiceLevel;
-      
-      // Find the menu item
-      let menuItem = findMenuItem(itemName);
-      
-      if (menuItem && MENU_ITEMS[menuItem]) {
-        let price = MENU_ITEMS[menuItem];
-        let itemTotal = price * quantity;
-        subtotal += itemTotal;
-        
-        const processedItem = {
-          name: menuItem,
-          quantity: quantity,
-          price: price,
-          total: itemTotal
-        };
-        
-        // Add spice level if applicable
-        if (spiceLevel && requiresSpiceLevel(menuItem)) {
-          processedItem.spice_level = spiceLevel;
-          processedItem.modifications = [`spice: ${spiceLevel}`];
-        }
-        
-        itemizedList.push(processedItem);
-        
-        console.log(`  ✓ ${quantity}x ${menuItem} @ ${price} = ${itemTotal.toFixed(2)}`);
-      } else {
-        console.log(`  ⚠️ Item not found: ${itemName} - skipping`);
-      }
-    }
-    
-    // Calculate tax and total
-    const tax = subtotal * TAX_RATE;
-    const total = subtotal + tax;
-    
-    console.log(`  Subtotal: ${subtotal.toFixed(2)}`);
-    console.log(`  Tax (6.5%): ${tax.toFixed(2)}`);
-    console.log(`  Total: ${total.toFixed(2)}`);
-    
-    // Store this order data for later use in post-call webhook
-    if (callId) {
-      const orderData = {
-        items: itemizedList,
-        subtotal: subtotal.toFixed(2),
-        tax: tax.toFixed(2),
-        total: total.toFixed(2),
-        formattedTotal: `${total.toFixed(2)}`,
-        itemCount: itemizedList.length
-      };
-      
-      addActiveOrder(callId, orderData);
-      console.log(`💾 Stored complete order for call ${callId}`);
-    }
-    
-    // Return simple response for ElevenLabs to speak
-    const response = {
-      success: true,
-      total: total.toFixed(2),
-      formattedTotal: `${total.toFixed(2)}`,
-      subtotal: subtotal.toFixed(2),
-      tax: tax.toFixed(2),
-      itemCount: itemizedList.length,
-      items: itemizedList
-    };
-    
-    console.log('💰 Sending total response:', response);
-    res.json(response);
-    
-  } catch (error) {
-    console.error('❌ Error in get-total:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Failed to calculate total',
-      total: "0.00"
-    });
-  }
-});
 
 // AI-powered order summarization function
 async function summarizeOrderWithAI(orderText) {
@@ -773,65 +641,11 @@ async function extractItemsFromTranscriptWithAI(transcript) {
   return null;
 }
 
-// ENHANCED: Use stored order data from get-total if available
-async function extractOrderFromSummary(summary, fallbackTranscript, callId) {
-  // First, check if we have stored order data from get-total
-  if (callId && activeOrders.has(callId)) {
-    const storedOrder = activeOrders.get(callId);
-    
-    if (LOG_MODE === 'full') {
-      console.log('✅ Using stored order data from get-total endpoint');
-    } else {
-      console.log('✅ Using complete order from live calculation');
-    }
-    
-    // Extract contact info from transcript
-    const contactInfo = extractContactInfo(fallbackTranscript || []);
-    
-    // Determine order type and pickup time
-    let pickupTime = 'ASAP';
-    let orderType = 'pickup';
-    
-    if (typeof summary === 'string') {
-      const summaryText = summary.toLowerCase();
-      const timeMatch = summaryText.match(/(\d+)\s+(minute|min|hour|hr)/i);
-      if (timeMatch) {
-        pickupTime = timeMatch[1] + ' ' + timeMatch[2] + (timeMatch[1] !== '1' ? 's' : '');
-      }
-      
-      if (/delivery|deliver/.test(summaryText)) {
-        orderType = 'delivery';
-      }
-    }
-    
-    // Convert stored order format to expected format
-    const formattedItems = storedOrder.items.map(item => ({
-      name: item.name,
-      quantity: item.quantity,
-      price: item.price,
-      total: item.total,
-      modifications: item.modifications || []
-    }));
-    
-    return {
-      customer_name: contactInfo.name || 'N/A',
-      phone: contactInfo.phone || 'N/A',
-      items: formattedItems,
-      pickup_time: pickupTime,
-      order_type: orderType,
-      address: contactInfo.address || 'N/A',
-      notes: '',
-      payment_link: '',
-      subtotal: '$' + storedOrder.subtotal,
-      tax: '$' + storedOrder.tax,
-      total: '$' + storedOrder.total
-    };
-  }
-  
-  // Fallback to AI parsing if no stored order
+async function extractOrderFromSummary(summary, fallbackTranscript) {
+  // Try AI parsing first
   if (fallbackTranscript && fallbackTranscript.length > 0) {
     if (LOG_MODE === 'full') {
-      console.log('🎯 Falling back to AI-enhanced transcript parsing');
+      console.log('🎯 Trying AI-enhanced transcript parsing');
     }
     const aiItems = await extractItemsFromTranscriptWithAI(fallbackTranscript);
     
@@ -872,7 +686,7 @@ async function extractOrderFromSummary(summary, fallbackTranscript, callId) {
     }
   }
   
-  // Final fallback to regex parsing
+  // Fallback to original regex parsing
   if (LOG_MODE === 'full') {
     console.log('🔄 Falling back to regex parsing');
   }
@@ -1023,11 +837,97 @@ app.post('/calculate-order', async (req, res) => {
   }
 });
 
+// Add the get-total endpoint for ElevenLabs live call integration
+app.post('/get-total', async (req, res) => {
+  try {
+    let data;
+    
+    // Handle different ways the data might come in
+    if (typeof req.body === 'string') {
+      data = JSON.parse(req.body);
+    } else if (req.body.body && typeof req.body.body === 'string') {
+      data = JSON.parse(req.body.body);
+    } else {
+      data = req.body;
+    }
+    
+    console.log('🔢 Live total calculation request:', JSON.stringify(data, null, 2));
+    
+    const { items } = data;
+    
+    if (!items || !Array.isArray(items)) {
+      return res.status(400).json({ 
+        error: 'Invalid request: items array is required',
+        total: "0.00"
+      });
+    }
+    
+    let subtotal = 0;
+    let itemizedList = [];
+    
+    // Process each item
+    for (const item of items) {
+      let itemName = item.name.toLowerCase();
+      let quantity = parseInt(item.quantity) || 1;
+      
+      // Find the menu item
+      let menuItem = findMenuItem(itemName);
+      
+      if (menuItem && MENU_ITEMS[menuItem]) {
+        let price = MENU_ITEMS[menuItem];
+        let itemTotal = price * quantity;
+        subtotal += itemTotal;
+        
+        itemizedList.push({
+          name: menuItem,
+          quantity: quantity,
+          price: price,
+          total: itemTotal
+        });
+        
+        console.log(`  ✓ ${quantity}x ${menuItem} @ ${price} = ${itemTotal.toFixed(2)}`);
+      } else {
+        console.log(`  ⚠️ Item not found: ${itemName} - skipping`);
+      }
+    }
+    
+    // Calculate tax and total
+    const tax = subtotal * TAX_RATE;
+    const total = subtotal + tax;
+    
+    console.log(`  Subtotal: ${subtotal.toFixed(2)}`);
+    console.log(`  Tax (6.5%): ${tax.toFixed(2)}`);
+    console.log(`  Total: ${total.toFixed(2)}`);
+    
+    // Return simple response for ElevenLabs to speak
+    const response = {
+      success: true,
+      total: total.toFixed(2),
+      formattedTotal: `${total.toFixed(2)}`,
+      subtotal: subtotal.toFixed(2),
+      tax: tax.toFixed(2),
+      itemCount: itemizedList.length,
+      items: itemizedList
+    };
+    
+    console.log('💰 Sending total response:', response);
+    res.json(response);
+    
+  } catch (error) {
+    console.error('❌ Error in get-total:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to calculate total',
+      total: "0.00"
+    });
+  }
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
-    service: 'Roti\'s Indian Restaurant Price Calculator v1.1',
+    service: 'Roti\'s Indian Restaurant Price Calculator v1.0',
     timestamp: new Date().toISOString()
   });
 });
@@ -1132,8 +1032,7 @@ app.post('/post-call', async (req, res) => {
     console.log('\n🔄 Starting order extraction...');
   }
   
-  // ENHANCED: Pass callId to use stored order data
-  const detectedOrder = await extractOrderFromSummary(summaryToUse, transcript, callId);
+  const detectedOrder = await extractOrderFromSummary(summaryToUse, transcript);
 
   if (detectedOrder) {
     if (LOG_MODE === 'summary') {
@@ -1166,14 +1065,6 @@ app.post('/post-call', async (req, res) => {
       console.log(JSON.stringify(toastPayload, null, 2));
       console.log('-'.repeat(60));
     }
-    
-    // Clean up stored order data after successful processing
-    if (callId && activeOrders.has(callId)) {
-      activeOrders.delete(callId);
-      if (LOG_MODE === 'full') {
-        console.log(`🧹 Cleaned up stored order data for call ${callId}`);
-      }
-    }
   } else {
     console.log('❌ No order detected.');
   }
@@ -1183,9 +1074,9 @@ app.post('/post-call', async (req, res) => {
 
 app.listen(port, () => {
   console.log('============================================');
-  console.log('✅ Roti\'s Indian Restaurant Server v1.1 - Started Successfully');
+  console.log('✅ Roti\'s Indian Restaurant Server v1.0 - Started Successfully');
   console.log(`📍 Listening on port ${port}`);
-  console.log('🔄 Features: Enhanced order capture from get-total endpoint');
+  console.log('🔄 Features: AI order parsing, spice level validation');
   console.log('📝 Toast integration ready (awaiting API credentials)');
   console.log('============================================');
 });
