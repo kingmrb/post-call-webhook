@@ -261,6 +261,10 @@ function addActiveOrder(callId, orderData) {
   }
 }
 
+// Store for capturing the latest order (simplified approach)
+let latestOrderData = null;
+let latestOrderTimestamp = null;
+
 // Enhanced get-total endpoint with order capture
 app.post('/get-total', async (req, res) => {
   try {
@@ -277,8 +281,7 @@ app.post('/get-total', async (req, res) => {
     
     console.log('🔢 Live total calculation request:', JSON.stringify(data, null, 2));
     
-    const { items, conversation_id, call_id } = data;
-    const callId = conversation_id || call_id;
+    const { items } = data;
     
     if (!items || !Array.isArray(items)) {
       return res.status(400).json({ 
@@ -333,20 +336,18 @@ app.post('/get-total', async (req, res) => {
     console.log(`  Tax (6.5%): ${tax.toFixed(2)}`);
     console.log(`  Total: ${total.toFixed(2)}`);
     
-    // Store this order data for later use in post-call webhook
-    if (callId) {
-      const orderData = {
-        items: itemizedList,
-        subtotal: subtotal.toFixed(2),
-        tax: tax.toFixed(2),
-        total: total.toFixed(2),
-        formattedTotal: `${total.toFixed(2)}`,
-        itemCount: itemizedList.length
-      };
-      
-      addActiveOrder(callId, orderData);
-      console.log(`💾 Stored complete order for call ${callId}`);
-    }
+    // Store this as the latest order data (simplified approach)
+    latestOrderData = {
+      items: itemizedList,
+      subtotal: subtotal.toFixed(2),
+      tax: tax.toFixed(2),
+      total: total.toFixed(2),
+      formattedTotal: `${total.toFixed(2)}`,
+      itemCount: itemizedList.length
+    };
+    latestOrderTimestamp = Date.now();
+    
+    console.log(`💾 Stored latest order data with ${itemizedList.length} items`);
     
     // Return simple response for ElevenLabs to speak
     const response = {
@@ -773,14 +774,14 @@ async function extractItemsFromTranscriptWithAI(transcript) {
   return null;
 }
 
-// ENHANCED: Use stored order data from get-total if available
+// ENHANCED: Use latest order data from get-total if available (within 5 minutes)
 async function extractOrderFromSummary(summary, fallbackTranscript, callId) {
-  // First, check if we have stored order data from get-total
-  if (callId && activeOrders.has(callId)) {
-    const storedOrder = activeOrders.get(callId);
-    
+  // First, check if we have recent order data from get-total (within 5 minutes)
+  const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+  
+  if (latestOrderData && latestOrderTimestamp && latestOrderTimestamp > fiveMinutesAgo) {
     if (LOG_MODE === 'full') {
-      console.log('✅ Using stored order data from get-total endpoint');
+      console.log('✅ Using latest order data from get-total endpoint');
     } else {
       console.log('✅ Using complete order from live calculation');
     }
@@ -805,13 +806,17 @@ async function extractOrderFromSummary(summary, fallbackTranscript, callId) {
     }
     
     // Convert stored order format to expected format
-    const formattedItems = storedOrder.items.map(item => ({
+    const formattedItems = latestOrderData.items.map(item => ({
       name: item.name,
       quantity: item.quantity,
       price: item.price,
       total: item.total,
       modifications: item.modifications || []
     }));
+    
+    // Clear the latest order data after using it
+    latestOrderData = null;
+    latestOrderTimestamp = null;
     
     return {
       customer_name: contactInfo.name || 'N/A',
@@ -822,9 +827,1129 @@ async function extractOrderFromSummary(summary, fallbackTranscript, callId) {
       address: contactInfo.address || 'N/A',
       notes: '',
       payment_link: '',
-      subtotal: '$' + storedOrder.subtotal,
-      tax: '$' + storedOrder.tax,
-      total: '$' + storedOrder.total
+      subtotal: '
+  
+  // Fallback to AI parsing if no stored order
+  if (fallbackTranscript && fallbackTranscript.length > 0) {
+    if (LOG_MODE === 'full') {
+      console.log('🎯 Falling back to AI-enhanced transcript parsing');
+    }
+    const aiItems = await extractItemsFromTranscriptWithAI(fallbackTranscript);
+    
+    if (aiItems && aiItems.length > 0) {
+      if (LOG_MODE === 'full') {
+        console.log('✅ Successfully extracted items using AI');
+      }
+      
+      const contactInfo = extractContactInfo(fallbackTranscript);
+      const totals = calculateTotals(aiItems);
+      
+      let pickupTime = 'ASAP';
+      let orderType = 'pickup';
+      
+      if (typeof summary === 'string') {
+        const summaryText = summary.toLowerCase();
+        const timeMatch = summaryText.match(/(\d+)\s+(minute|min|hour|hr)/i);
+        if (timeMatch) {
+          pickupTime = timeMatch[1] + ' ' + timeMatch[2] + (timeMatch[1] !== '1' ? 's' : '');
+        }
+        
+        if (/delivery|deliver/.test(summaryText)) {
+          orderType = 'delivery';
+        }
+      }
+      
+      return {
+        customer_name: contactInfo.name || 'N/A',
+        phone: contactInfo.phone || 'N/A',
+        items: aiItems,
+        pickup_time: pickupTime,
+        order_type: orderType,
+        address: contactInfo.address || 'N/A',
+        notes: '',
+        payment_link: '',
+        ...totals
+      };
+    }
+  }
+  
+  // Final fallback to regex parsing
+  if (LOG_MODE === 'full') {
+    console.log('🔄 Falling back to regex parsing');
+  }
+  if (fallbackTranscript && fallbackTranscript.length > 0) {
+    const transcriptItems = extractItemsFromTranscript(fallbackTranscript);
+    
+    if (transcriptItems && transcriptItems.length > 0) {
+      const contactInfo = extractContactInfo(fallbackTranscript);
+      const totals = calculateTotals(transcriptItems);
+      
+      let pickupTime = 'ASAP';
+      let orderType = 'pickup';
+      
+      if (typeof summary === 'string') {
+        const summaryText = summary.toLowerCase();
+        const timeMatch = summaryText.match(/(\d+)\s+(minute|min|hour|hr)/i);
+        if (timeMatch) {
+          pickupTime = timeMatch[1] + ' ' + timeMatch[2] + (timeMatch[1] !== '1' ? 's' : '');
+        }
+        
+        if (/delivery|deliver/.test(summaryText)) {
+          orderType = 'delivery';
+        }
+      }
+      
+      return {
+        customer_name: contactInfo.name || 'N/A',
+        phone: contactInfo.phone || 'N/A',
+        items: transcriptItems,
+        pickup_time: pickupTime,
+        order_type: orderType,
+        address: contactInfo.address || 'N/A',
+        notes: '',
+        payment_link: '',
+        ...totals
+      };
+    }
+  }
+  
+  return null;
+}
+
+// Add the calculate-order endpoint for ElevenLabs integration
+app.post('/calculate-order', async (req, res) => {
+  try {
+    let data;
+    
+    // Handle different ways the data might come in
+    if (typeof req.body === 'string') {
+      data = JSON.parse(req.body);
+    } else if (req.body.body && typeof req.body.body === 'string') {
+      data = JSON.parse(req.body.body);
+    } else {
+      data = req.body;
+    }
+    
+    console.log('📱 Price calculation request from ElevenLabs:', JSON.stringify(data, null, 2));
+    
+    const { items, orderType } = data;
+    
+    if (!items || !Array.isArray(items)) {
+      return res.status(400).json({ 
+        error: 'Invalid request: items array is required' 
+      });
+    }
+    
+    let calculatedItems = [];
+    let subtotal = 0;
+    let missingSpiceItems = [];
+    
+    // Process each item
+    for (const item of items) {
+      let itemName = item.name.toLowerCase();
+      let quantity = item.quantity || 1;
+      let spiceLevel = item.spice_level || item.spiceLevel;
+      
+      console.log(`\n🔄 Processing: ${item.name} (qty: ${quantity})`);
+      if (spiceLevel) console.log(`  Spice level: ${spiceLevel}`);
+      
+      // Find the menu item
+      let menuItem = findMenuItem(itemName);
+      
+      if (menuItem && MENU_ITEMS[menuItem]) {
+        let price = MENU_ITEMS[menuItem];
+        
+        console.log(`  Found: ${menuItem} - Price: ${price}`);
+        
+        // Check if spice level is required but missing
+        if (requiresSpiceLevel(menuItem) && !spiceLevel) {
+          missingSpiceItems.push(menuItem);
+          console.log(`  ⚠️ Missing required spice level for: ${menuItem}`);
+        }
+        
+        let itemTotal = price * quantity;
+        subtotal += itemTotal;
+        
+        const calcItem = {
+          name: menuItem,
+          quantity: quantity,
+          unitPrice: price,
+          total: itemTotal
+        };
+        
+        if (spiceLevel && requiresSpiceLevel(menuItem)) {
+          calcItem.spiceLevel = spiceLevel;
+        }
+        
+        calculatedItems.push(calcItem);
+      } else {
+        console.log(`  ❌ Could not find menu item: ${itemName}`);
+        return res.status(400).json({ 
+          error: `Item not found: ${item.name}`,
+          suggestion: "Please check the item name and try again"
+        });
+      }
+    }
+    
+    // Check for missing spice levels
+    if (missingSpiceItems.length > 0) {
+      return res.status(400).json({
+        error: 'Missing spice levels',
+        message: `Please specify spice level (very mild, mild, spicy, or extra spicy) for: ${missingSpiceItems.join(', ')}`,
+        missingSpiceItems: missingSpiceItems
+      });
+    }
+    
+    // Calculate totals
+    const tax = subtotal * TAX_RATE;
+    const total = subtotal + tax;
+    
+    const response = {
+      items: calculatedItems,
+      subtotal: subtotal.toFixed(2),
+      tax: tax.toFixed(2),
+      total: total.toFixed(2),
+      formattedTotal: `${total.toFixed(2)}`
+    };
+    
+    console.log('💰 Calculated totals:', response);
+    res.json(response);
+    
+  } catch (error) {
+    console.error('❌ Error calculating order:', error);
+    res.status(500).json({ 
+      error: 'Failed to calculate order total',
+      message: error.message 
+    });
+  }
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    service: 'Roti\'s Indian Restaurant Price Calculator v1.1',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Store processed call IDs to prevent duplicates (with size limit)
+const processedCalls = new Map(); // Changed to Map for better memory management
+const MAX_PROCESSED_CALLS = 100;
+
+// Helper function to manage processed calls
+function addProcessedCall(callId) {
+  if (processedCalls.size >= MAX_PROCESSED_CALLS) {
+    // Remove oldest entry
+    const firstKey = processedCalls.keys().next().value;
+    processedCalls.delete(firstKey);
+  }
+  processedCalls.set(callId, Date.now());
+}
+
+app.post('/post-call', async (req, res) => {
+  if (LOG_MODE === 'full') {
+    console.log('\n' + '='.repeat(60));
+    console.log('✅ Webhook received at:', new Date().toISOString());
+    console.log('='.repeat(60));
+  }
+  
+  const data = req.body;
+  const transcript = data?.data?.transcript || data?.transcript || [];
+  const callId = data?.data?.conversation_id || data?.conversation_id;
+  const status = data?.data?.status || data?.status;
+
+  if (LOG_MODE === 'full') {
+    console.log('📞 Call ID:', callId);
+    console.log('📊 Call Status:', status);
+  }
+  
+  // Check if we've already processed this call
+  if (callId && processedCalls.has(callId)) {
+    if (LOG_MODE === 'full') {
+      console.log('⏭️ Skipping duplicate webhook for call:', callId);
+    }
+    return res.status(200).send('✅ Duplicate webhook ignored');
+  }
+  
+  // Mark this call as processed
+  if (callId) {
+    addProcessedCall(callId);
+  }
+
+  if (!transcript || transcript.length === 0) {
+    if (LOG_MODE === 'full') {
+      console.log('⚠️ No transcript found in webhook payload');
+    }
+    return res.status(200).send('✅ Webhook received - No transcript to process');
+  }
+
+  // In summary mode, only show order confirmation exchanges
+  if (LOG_MODE === 'summary') {
+    console.log('\n' + '='.repeat(60));
+    console.log('📞 Call Summary - ID:', callId);
+    console.log('='.repeat(60));
+    
+    // Find order confirmation
+    const orderConfirmationIndex = transcript.findIndex(turn => 
+      turn.message && turn.message.includes('Your final order is')
+    );
+    
+    if (orderConfirmationIndex !== -1) {
+      console.log('\n📝 Order Confirmation:');
+      console.log('Agent:', transcript[orderConfirmationIndex].message);
+      
+      // Look for customer confirmation
+      if (orderConfirmationIndex + 1 < transcript.length) {
+        console.log('Customer:', transcript[orderConfirmationIndex + 1].message);
+      }
+    }
+  } else {
+    // Full logging mode
+    console.log('\n📝 Processing transcript with', transcript.length, 'turns');
+    console.log('-'.repeat(60));
+    transcript.forEach(turn => {
+      if (turn.role && turn.message) {
+        console.log((turn.role === 'agent' ? 'Agent' : 'Customer') + ': "' + turn.message + '"');
+      }
+    });
+  }
+
+  let summaryToUse = null;
+  if (data?.data?.analysis?.transcript_summary) {
+    summaryToUse = data.data.analysis.transcript_summary;
+    
+    if (LOG_MODE === 'summary') {
+      console.log('\n📋 AI Summary:', summaryToUse);
+    } else {
+      console.log('\n📋 AI-Generated Summary:');
+      console.log('-'.repeat(60));
+      console.log(summaryToUse);
+      console.log('-'.repeat(60));
+    }
+  }
+
+  if (LOG_MODE === 'full') {
+    console.log('\n🔄 Starting order extraction...');
+  }
+  
+  // ENHANCED: Pass callId to use stored order data
+  const detectedOrder = await extractOrderFromSummary(summaryToUse, transcript, callId);
+
+  if (detectedOrder) {
+    if (LOG_MODE === 'summary') {
+      console.log('\n📦 Order Detected:');
+      console.log('Customer:', detectedOrder.customer_name, '| Phone:', detectedOrder.phone);
+      console.log('Type:', detectedOrder.order_type, '| Ready in:', detectedOrder.pickup_time);
+      console.log('Items:', detectedOrder.items.length);
+      console.log('Total:', detectedOrder.total);
+      
+      // Show toast payload in compact format
+      console.log('\n🍞 Ready for Toast Integration');
+    } else {
+      console.log('\n' + '='.repeat(60));
+      console.log('📦 ORDER DETECTED SUCCESSFULLY');
+      console.log('='.repeat(60));
+      console.log(JSON.stringify(detectedOrder, null, 2));
+      console.log('='.repeat(60));
+
+      // Create sample Toast payload
+      const toastPayload = {
+        restaurant: "Roti's Indian Restaurant",
+        order: detectedOrder,
+        timestamp: new Date().toISOString(),
+        source: "Voice AI Agent",
+        status: "pending_toast_integration"
+      };
+
+      console.log('\n🍞 Toast Payload (Ready for future integration):');
+      console.log('-'.repeat(60));
+      console.log(JSON.stringify(toastPayload, null, 2));
+      console.log('-'.repeat(60));
+    }
+    
+    // Clean up stored order data after successful processing
+    if (latestOrderData) {
+      latestOrderData = null;
+      latestOrderTimestamp = null;
+      if (LOG_MODE === 'full') {
+        console.log(`🧹 Cleaned up latest order data after processing`);
+      }
+    }
+  } else {
+    console.log('❌ No order detected.');
+  }
+
+  res.status(200).send('✅ Webhook received and processed');
+});
+
+app.listen(port, () => {
+  console.log('============================================');
+  console.log('✅ Roti\'s Indian Restaurant Server v1.1 - Started Successfully');
+  console.log(`📍 Listening on port ${port}`);
+  console.log('🔄 Features: Enhanced order capture from get-total endpoint');
+  console.log('📝 Toast integration ready (awaiting API credentials)');
+  console.log('============================================');
+});
+
+// Graceful shutdown handling
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully...');
+  process.exit(0);
+}); + latestOrderData?.subtotal || '0.00',
+      tax: '
+  
+  // Fallback to AI parsing if no stored order
+  if (fallbackTranscript && fallbackTranscript.length > 0) {
+    if (LOG_MODE === 'full') {
+      console.log('🎯 Falling back to AI-enhanced transcript parsing');
+    }
+    const aiItems = await extractItemsFromTranscriptWithAI(fallbackTranscript);
+    
+    if (aiItems && aiItems.length > 0) {
+      if (LOG_MODE === 'full') {
+        console.log('✅ Successfully extracted items using AI');
+      }
+      
+      const contactInfo = extractContactInfo(fallbackTranscript);
+      const totals = calculateTotals(aiItems);
+      
+      let pickupTime = 'ASAP';
+      let orderType = 'pickup';
+      
+      if (typeof summary === 'string') {
+        const summaryText = summary.toLowerCase();
+        const timeMatch = summaryText.match(/(\d+)\s+(minute|min|hour|hr)/i);
+        if (timeMatch) {
+          pickupTime = timeMatch[1] + ' ' + timeMatch[2] + (timeMatch[1] !== '1' ? 's' : '');
+        }
+        
+        if (/delivery|deliver/.test(summaryText)) {
+          orderType = 'delivery';
+        }
+      }
+      
+      return {
+        customer_name: contactInfo.name || 'N/A',
+        phone: contactInfo.phone || 'N/A',
+        items: aiItems,
+        pickup_time: pickupTime,
+        order_type: orderType,
+        address: contactInfo.address || 'N/A',
+        notes: '',
+        payment_link: '',
+        ...totals
+      };
+    }
+  }
+  
+  // Final fallback to regex parsing
+  if (LOG_MODE === 'full') {
+    console.log('🔄 Falling back to regex parsing');
+  }
+  if (fallbackTranscript && fallbackTranscript.length > 0) {
+    const transcriptItems = extractItemsFromTranscript(fallbackTranscript);
+    
+    if (transcriptItems && transcriptItems.length > 0) {
+      const contactInfo = extractContactInfo(fallbackTranscript);
+      const totals = calculateTotals(transcriptItems);
+      
+      let pickupTime = 'ASAP';
+      let orderType = 'pickup';
+      
+      if (typeof summary === 'string') {
+        const summaryText = summary.toLowerCase();
+        const timeMatch = summaryText.match(/(\d+)\s+(minute|min|hour|hr)/i);
+        if (timeMatch) {
+          pickupTime = timeMatch[1] + ' ' + timeMatch[2] + (timeMatch[1] !== '1' ? 's' : '');
+        }
+        
+        if (/delivery|deliver/.test(summaryText)) {
+          orderType = 'delivery';
+        }
+      }
+      
+      return {
+        customer_name: contactInfo.name || 'N/A',
+        phone: contactInfo.phone || 'N/A',
+        items: transcriptItems,
+        pickup_time: pickupTime,
+        order_type: orderType,
+        address: contactInfo.address || 'N/A',
+        notes: '',
+        payment_link: '',
+        ...totals
+      };
+    }
+  }
+  
+  return null;
+}
+
+// Add the calculate-order endpoint for ElevenLabs integration
+app.post('/calculate-order', async (req, res) => {
+  try {
+    let data;
+    
+    // Handle different ways the data might come in
+    if (typeof req.body === 'string') {
+      data = JSON.parse(req.body);
+    } else if (req.body.body && typeof req.body.body === 'string') {
+      data = JSON.parse(req.body.body);
+    } else {
+      data = req.body;
+    }
+    
+    console.log('📱 Price calculation request from ElevenLabs:', JSON.stringify(data, null, 2));
+    
+    const { items, orderType } = data;
+    
+    if (!items || !Array.isArray(items)) {
+      return res.status(400).json({ 
+        error: 'Invalid request: items array is required' 
+      });
+    }
+    
+    let calculatedItems = [];
+    let subtotal = 0;
+    let missingSpiceItems = [];
+    
+    // Process each item
+    for (const item of items) {
+      let itemName = item.name.toLowerCase();
+      let quantity = item.quantity || 1;
+      let spiceLevel = item.spice_level || item.spiceLevel;
+      
+      console.log(`\n🔄 Processing: ${item.name} (qty: ${quantity})`);
+      if (spiceLevel) console.log(`  Spice level: ${spiceLevel}`);
+      
+      // Find the menu item
+      let menuItem = findMenuItem(itemName);
+      
+      if (menuItem && MENU_ITEMS[menuItem]) {
+        let price = MENU_ITEMS[menuItem];
+        
+        console.log(`  Found: ${menuItem} - Price: ${price}`);
+        
+        // Check if spice level is required but missing
+        if (requiresSpiceLevel(menuItem) && !spiceLevel) {
+          missingSpiceItems.push(menuItem);
+          console.log(`  ⚠️ Missing required spice level for: ${menuItem}`);
+        }
+        
+        let itemTotal = price * quantity;
+        subtotal += itemTotal;
+        
+        const calcItem = {
+          name: menuItem,
+          quantity: quantity,
+          unitPrice: price,
+          total: itemTotal
+        };
+        
+        if (spiceLevel && requiresSpiceLevel(menuItem)) {
+          calcItem.spiceLevel = spiceLevel;
+        }
+        
+        calculatedItems.push(calcItem);
+      } else {
+        console.log(`  ❌ Could not find menu item: ${itemName}`);
+        return res.status(400).json({ 
+          error: `Item not found: ${item.name}`,
+          suggestion: "Please check the item name and try again"
+        });
+      }
+    }
+    
+    // Check for missing spice levels
+    if (missingSpiceItems.length > 0) {
+      return res.status(400).json({
+        error: 'Missing spice levels',
+        message: `Please specify spice level (very mild, mild, spicy, or extra spicy) for: ${missingSpiceItems.join(', ')}`,
+        missingSpiceItems: missingSpiceItems
+      });
+    }
+    
+    // Calculate totals
+    const tax = subtotal * TAX_RATE;
+    const total = subtotal + tax;
+    
+    const response = {
+      items: calculatedItems,
+      subtotal: subtotal.toFixed(2),
+      tax: tax.toFixed(2),
+      total: total.toFixed(2),
+      formattedTotal: `${total.toFixed(2)}`
+    };
+    
+    console.log('💰 Calculated totals:', response);
+    res.json(response);
+    
+  } catch (error) {
+    console.error('❌ Error calculating order:', error);
+    res.status(500).json({ 
+      error: 'Failed to calculate order total',
+      message: error.message 
+    });
+  }
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    service: 'Roti\'s Indian Restaurant Price Calculator v1.1',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Store processed call IDs to prevent duplicates (with size limit)
+const processedCalls = new Map(); // Changed to Map for better memory management
+const MAX_PROCESSED_CALLS = 100;
+
+// Helper function to manage processed calls
+function addProcessedCall(callId) {
+  if (processedCalls.size >= MAX_PROCESSED_CALLS) {
+    // Remove oldest entry
+    const firstKey = processedCalls.keys().next().value;
+    processedCalls.delete(firstKey);
+  }
+  processedCalls.set(callId, Date.now());
+}
+
+app.post('/post-call', async (req, res) => {
+  if (LOG_MODE === 'full') {
+    console.log('\n' + '='.repeat(60));
+    console.log('✅ Webhook received at:', new Date().toISOString());
+    console.log('='.repeat(60));
+  }
+  
+  const data = req.body;
+  const transcript = data?.data?.transcript || data?.transcript || [];
+  const callId = data?.data?.conversation_id || data?.conversation_id;
+  const status = data?.data?.status || data?.status;
+
+  if (LOG_MODE === 'full') {
+    console.log('📞 Call ID:', callId);
+    console.log('📊 Call Status:', status);
+  }
+  
+  // Check if we've already processed this call
+  if (callId && processedCalls.has(callId)) {
+    if (LOG_MODE === 'full') {
+      console.log('⏭️ Skipping duplicate webhook for call:', callId);
+    }
+    return res.status(200).send('✅ Duplicate webhook ignored');
+  }
+  
+  // Mark this call as processed
+  if (callId) {
+    addProcessedCall(callId);
+  }
+
+  if (!transcript || transcript.length === 0) {
+    if (LOG_MODE === 'full') {
+      console.log('⚠️ No transcript found in webhook payload');
+    }
+    return res.status(200).send('✅ Webhook received - No transcript to process');
+  }
+
+  // In summary mode, only show order confirmation exchanges
+  if (LOG_MODE === 'summary') {
+    console.log('\n' + '='.repeat(60));
+    console.log('📞 Call Summary - ID:', callId);
+    console.log('='.repeat(60));
+    
+    // Find order confirmation
+    const orderConfirmationIndex = transcript.findIndex(turn => 
+      turn.message && turn.message.includes('Your final order is')
+    );
+    
+    if (orderConfirmationIndex !== -1) {
+      console.log('\n📝 Order Confirmation:');
+      console.log('Agent:', transcript[orderConfirmationIndex].message);
+      
+      // Look for customer confirmation
+      if (orderConfirmationIndex + 1 < transcript.length) {
+        console.log('Customer:', transcript[orderConfirmationIndex + 1].message);
+      }
+    }
+  } else {
+    // Full logging mode
+    console.log('\n📝 Processing transcript with', transcript.length, 'turns');
+    console.log('-'.repeat(60));
+    transcript.forEach(turn => {
+      if (turn.role && turn.message) {
+        console.log((turn.role === 'agent' ? 'Agent' : 'Customer') + ': "' + turn.message + '"');
+      }
+    });
+  }
+
+  let summaryToUse = null;
+  if (data?.data?.analysis?.transcript_summary) {
+    summaryToUse = data.data.analysis.transcript_summary;
+    
+    if (LOG_MODE === 'summary') {
+      console.log('\n📋 AI Summary:', summaryToUse);
+    } else {
+      console.log('\n📋 AI-Generated Summary:');
+      console.log('-'.repeat(60));
+      console.log(summaryToUse);
+      console.log('-'.repeat(60));
+    }
+  }
+
+  if (LOG_MODE === 'full') {
+    console.log('\n🔄 Starting order extraction...');
+  }
+  
+  // ENHANCED: Pass callId to use stored order data
+  const detectedOrder = await extractOrderFromSummary(summaryToUse, transcript, callId);
+
+  if (detectedOrder) {
+    if (LOG_MODE === 'summary') {
+      console.log('\n📦 Order Detected:');
+      console.log('Customer:', detectedOrder.customer_name, '| Phone:', detectedOrder.phone);
+      console.log('Type:', detectedOrder.order_type, '| Ready in:', detectedOrder.pickup_time);
+      console.log('Items:', detectedOrder.items.length);
+      console.log('Total:', detectedOrder.total);
+      
+      // Show toast payload in compact format
+      console.log('\n🍞 Ready for Toast Integration');
+    } else {
+      console.log('\n' + '='.repeat(60));
+      console.log('📦 ORDER DETECTED SUCCESSFULLY');
+      console.log('='.repeat(60));
+      console.log(JSON.stringify(detectedOrder, null, 2));
+      console.log('='.repeat(60));
+
+      // Create sample Toast payload
+      const toastPayload = {
+        restaurant: "Roti's Indian Restaurant",
+        order: detectedOrder,
+        timestamp: new Date().toISOString(),
+        source: "Voice AI Agent",
+        status: "pending_toast_integration"
+      };
+
+      console.log('\n🍞 Toast Payload (Ready for future integration):');
+      console.log('-'.repeat(60));
+      console.log(JSON.stringify(toastPayload, null, 2));
+      console.log('-'.repeat(60));
+    }
+    
+    // Clean up stored order data after successful processing
+    if (callId && activeOrders.has(callId)) {
+      activeOrders.delete(callId);
+      if (LOG_MODE === 'full') {
+        console.log(`🧹 Cleaned up stored order data for call ${callId}`);
+      }
+    }
+  } else {
+    console.log('❌ No order detected.');
+  }
+
+  res.status(200).send('✅ Webhook received and processed');
+});
+
+app.listen(port, () => {
+  console.log('============================================');
+  console.log('✅ Roti\'s Indian Restaurant Server v1.1 - Started Successfully');
+  console.log(`📍 Listening on port ${port}`);
+  console.log('🔄 Features: Enhanced order capture from get-total endpoint');
+  console.log('📝 Toast integration ready (awaiting API credentials)');
+  console.log('============================================');
+});
+
+// Graceful shutdown handling
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully...');
+  process.exit(0);
+}); + latestOrderData?.tax || '0.00',
+      total: '
+  
+  // Fallback to AI parsing if no stored order
+  if (fallbackTranscript && fallbackTranscript.length > 0) {
+    if (LOG_MODE === 'full') {
+      console.log('🎯 Falling back to AI-enhanced transcript parsing');
+    }
+    const aiItems = await extractItemsFromTranscriptWithAI(fallbackTranscript);
+    
+    if (aiItems && aiItems.length > 0) {
+      if (LOG_MODE === 'full') {
+        console.log('✅ Successfully extracted items using AI');
+      }
+      
+      const contactInfo = extractContactInfo(fallbackTranscript);
+      const totals = calculateTotals(aiItems);
+      
+      let pickupTime = 'ASAP';
+      let orderType = 'pickup';
+      
+      if (typeof summary === 'string') {
+        const summaryText = summary.toLowerCase();
+        const timeMatch = summaryText.match(/(\d+)\s+(minute|min|hour|hr)/i);
+        if (timeMatch) {
+          pickupTime = timeMatch[1] + ' ' + timeMatch[2] + (timeMatch[1] !== '1' ? 's' : '');
+        }
+        
+        if (/delivery|deliver/.test(summaryText)) {
+          orderType = 'delivery';
+        }
+      }
+      
+      return {
+        customer_name: contactInfo.name || 'N/A',
+        phone: contactInfo.phone || 'N/A',
+        items: aiItems,
+        pickup_time: pickupTime,
+        order_type: orderType,
+        address: contactInfo.address || 'N/A',
+        notes: '',
+        payment_link: '',
+        ...totals
+      };
+    }
+  }
+  
+  // Final fallback to regex parsing
+  if (LOG_MODE === 'full') {
+    console.log('🔄 Falling back to regex parsing');
+  }
+  if (fallbackTranscript && fallbackTranscript.length > 0) {
+    const transcriptItems = extractItemsFromTranscript(fallbackTranscript);
+    
+    if (transcriptItems && transcriptItems.length > 0) {
+      const contactInfo = extractContactInfo(fallbackTranscript);
+      const totals = calculateTotals(transcriptItems);
+      
+      let pickupTime = 'ASAP';
+      let orderType = 'pickup';
+      
+      if (typeof summary === 'string') {
+        const summaryText = summary.toLowerCase();
+        const timeMatch = summaryText.match(/(\d+)\s+(minute|min|hour|hr)/i);
+        if (timeMatch) {
+          pickupTime = timeMatch[1] + ' ' + timeMatch[2] + (timeMatch[1] !== '1' ? 's' : '');
+        }
+        
+        if (/delivery|deliver/.test(summaryText)) {
+          orderType = 'delivery';
+        }
+      }
+      
+      return {
+        customer_name: contactInfo.name || 'N/A',
+        phone: contactInfo.phone || 'N/A',
+        items: transcriptItems,
+        pickup_time: pickupTime,
+        order_type: orderType,
+        address: contactInfo.address || 'N/A',
+        notes: '',
+        payment_link: '',
+        ...totals
+      };
+    }
+  }
+  
+  return null;
+}
+
+// Add the calculate-order endpoint for ElevenLabs integration
+app.post('/calculate-order', async (req, res) => {
+  try {
+    let data;
+    
+    // Handle different ways the data might come in
+    if (typeof req.body === 'string') {
+      data = JSON.parse(req.body);
+    } else if (req.body.body && typeof req.body.body === 'string') {
+      data = JSON.parse(req.body.body);
+    } else {
+      data = req.body;
+    }
+    
+    console.log('📱 Price calculation request from ElevenLabs:', JSON.stringify(data, null, 2));
+    
+    const { items, orderType } = data;
+    
+    if (!items || !Array.isArray(items)) {
+      return res.status(400).json({ 
+        error: 'Invalid request: items array is required' 
+      });
+    }
+    
+    let calculatedItems = [];
+    let subtotal = 0;
+    let missingSpiceItems = [];
+    
+    // Process each item
+    for (const item of items) {
+      let itemName = item.name.toLowerCase();
+      let quantity = item.quantity || 1;
+      let spiceLevel = item.spice_level || item.spiceLevel;
+      
+      console.log(`\n🔄 Processing: ${item.name} (qty: ${quantity})`);
+      if (spiceLevel) console.log(`  Spice level: ${spiceLevel}`);
+      
+      // Find the menu item
+      let menuItem = findMenuItem(itemName);
+      
+      if (menuItem && MENU_ITEMS[menuItem]) {
+        let price = MENU_ITEMS[menuItem];
+        
+        console.log(`  Found: ${menuItem} - Price: ${price}`);
+        
+        // Check if spice level is required but missing
+        if (requiresSpiceLevel(menuItem) && !spiceLevel) {
+          missingSpiceItems.push(menuItem);
+          console.log(`  ⚠️ Missing required spice level for: ${menuItem}`);
+        }
+        
+        let itemTotal = price * quantity;
+        subtotal += itemTotal;
+        
+        const calcItem = {
+          name: menuItem,
+          quantity: quantity,
+          unitPrice: price,
+          total: itemTotal
+        };
+        
+        if (spiceLevel && requiresSpiceLevel(menuItem)) {
+          calcItem.spiceLevel = spiceLevel;
+        }
+        
+        calculatedItems.push(calcItem);
+      } else {
+        console.log(`  ❌ Could not find menu item: ${itemName}`);
+        return res.status(400).json({ 
+          error: `Item not found: ${item.name}`,
+          suggestion: "Please check the item name and try again"
+        });
+      }
+    }
+    
+    // Check for missing spice levels
+    if (missingSpiceItems.length > 0) {
+      return res.status(400).json({
+        error: 'Missing spice levels',
+        message: `Please specify spice level (very mild, mild, spicy, or extra spicy) for: ${missingSpiceItems.join(', ')}`,
+        missingSpiceItems: missingSpiceItems
+      });
+    }
+    
+    // Calculate totals
+    const tax = subtotal * TAX_RATE;
+    const total = subtotal + tax;
+    
+    const response = {
+      items: calculatedItems,
+      subtotal: subtotal.toFixed(2),
+      tax: tax.toFixed(2),
+      total: total.toFixed(2),
+      formattedTotal: `${total.toFixed(2)}`
+    };
+    
+    console.log('💰 Calculated totals:', response);
+    res.json(response);
+    
+  } catch (error) {
+    console.error('❌ Error calculating order:', error);
+    res.status(500).json({ 
+      error: 'Failed to calculate order total',
+      message: error.message 
+    });
+  }
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    service: 'Roti\'s Indian Restaurant Price Calculator v1.1',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Store processed call IDs to prevent duplicates (with size limit)
+const processedCalls = new Map(); // Changed to Map for better memory management
+const MAX_PROCESSED_CALLS = 100;
+
+// Helper function to manage processed calls
+function addProcessedCall(callId) {
+  if (processedCalls.size >= MAX_PROCESSED_CALLS) {
+    // Remove oldest entry
+    const firstKey = processedCalls.keys().next().value;
+    processedCalls.delete(firstKey);
+  }
+  processedCalls.set(callId, Date.now());
+}
+
+app.post('/post-call', async (req, res) => {
+  if (LOG_MODE === 'full') {
+    console.log('\n' + '='.repeat(60));
+    console.log('✅ Webhook received at:', new Date().toISOString());
+    console.log('='.repeat(60));
+  }
+  
+  const data = req.body;
+  const transcript = data?.data?.transcript || data?.transcript || [];
+  const callId = data?.data?.conversation_id || data?.conversation_id;
+  const status = data?.data?.status || data?.status;
+
+  if (LOG_MODE === 'full') {
+    console.log('📞 Call ID:', callId);
+    console.log('📊 Call Status:', status);
+  }
+  
+  // Check if we've already processed this call
+  if (callId && processedCalls.has(callId)) {
+    if (LOG_MODE === 'full') {
+      console.log('⏭️ Skipping duplicate webhook for call:', callId);
+    }
+    return res.status(200).send('✅ Duplicate webhook ignored');
+  }
+  
+  // Mark this call as processed
+  if (callId) {
+    addProcessedCall(callId);
+  }
+
+  if (!transcript || transcript.length === 0) {
+    if (LOG_MODE === 'full') {
+      console.log('⚠️ No transcript found in webhook payload');
+    }
+    return res.status(200).send('✅ Webhook received - No transcript to process');
+  }
+
+  // In summary mode, only show order confirmation exchanges
+  if (LOG_MODE === 'summary') {
+    console.log('\n' + '='.repeat(60));
+    console.log('📞 Call Summary - ID:', callId);
+    console.log('='.repeat(60));
+    
+    // Find order confirmation
+    const orderConfirmationIndex = transcript.findIndex(turn => 
+      turn.message && turn.message.includes('Your final order is')
+    );
+    
+    if (orderConfirmationIndex !== -1) {
+      console.log('\n📝 Order Confirmation:');
+      console.log('Agent:', transcript[orderConfirmationIndex].message);
+      
+      // Look for customer confirmation
+      if (orderConfirmationIndex + 1 < transcript.length) {
+        console.log('Customer:', transcript[orderConfirmationIndex + 1].message);
+      }
+    }
+  } else {
+    // Full logging mode
+    console.log('\n📝 Processing transcript with', transcript.length, 'turns');
+    console.log('-'.repeat(60));
+    transcript.forEach(turn => {
+      if (turn.role && turn.message) {
+        console.log((turn.role === 'agent' ? 'Agent' : 'Customer') + ': "' + turn.message + '"');
+      }
+    });
+  }
+
+  let summaryToUse = null;
+  if (data?.data?.analysis?.transcript_summary) {
+    summaryToUse = data.data.analysis.transcript_summary;
+    
+    if (LOG_MODE === 'summary') {
+      console.log('\n📋 AI Summary:', summaryToUse);
+    } else {
+      console.log('\n📋 AI-Generated Summary:');
+      console.log('-'.repeat(60));
+      console.log(summaryToUse);
+      console.log('-'.repeat(60));
+    }
+  }
+
+  if (LOG_MODE === 'full') {
+    console.log('\n🔄 Starting order extraction...');
+  }
+  
+  // ENHANCED: Pass callId to use stored order data
+  const detectedOrder = await extractOrderFromSummary(summaryToUse, transcript, callId);
+
+  if (detectedOrder) {
+    if (LOG_MODE === 'summary') {
+      console.log('\n📦 Order Detected:');
+      console.log('Customer:', detectedOrder.customer_name, '| Phone:', detectedOrder.phone);
+      console.log('Type:', detectedOrder.order_type, '| Ready in:', detectedOrder.pickup_time);
+      console.log('Items:', detectedOrder.items.length);
+      console.log('Total:', detectedOrder.total);
+      
+      // Show toast payload in compact format
+      console.log('\n🍞 Ready for Toast Integration');
+    } else {
+      console.log('\n' + '='.repeat(60));
+      console.log('📦 ORDER DETECTED SUCCESSFULLY');
+      console.log('='.repeat(60));
+      console.log(JSON.stringify(detectedOrder, null, 2));
+      console.log('='.repeat(60));
+
+      // Create sample Toast payload
+      const toastPayload = {
+        restaurant: "Roti's Indian Restaurant",
+        order: detectedOrder,
+        timestamp: new Date().toISOString(),
+        source: "Voice AI Agent",
+        status: "pending_toast_integration"
+      };
+
+      console.log('\n🍞 Toast Payload (Ready for future integration):');
+      console.log('-'.repeat(60));
+      console.log(JSON.stringify(toastPayload, null, 2));
+      console.log('-'.repeat(60));
+    }
+    
+    // Clean up stored order data after successful processing
+    if (callId && activeOrders.has(callId)) {
+      activeOrders.delete(callId);
+      if (LOG_MODE === 'full') {
+        console.log(`🧹 Cleaned up stored order data for call ${callId}`);
+      }
+    }
+  } else {
+    console.log('❌ No order detected.');
+  }
+
+  res.status(200).send('✅ Webhook received and processed');
+});
+
+app.listen(port, () => {
+  console.log('============================================');
+  console.log('✅ Roti\'s Indian Restaurant Server v1.1 - Started Successfully');
+  console.log(`📍 Listening on port ${port}`);
+  console.log('🔄 Features: Enhanced order capture from get-total endpoint');
+  console.log('📝 Toast integration ready (awaiting API credentials)');
+  console.log('============================================');
+});
+
+// Graceful shutdown handling
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully...');
+  process.exit(0);
+}); + latestOrderData?.total || '0.00'
     };
   }
   
