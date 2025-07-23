@@ -528,8 +528,8 @@ function extractItemsFromTranscript(transcript) {
     return items;
   }
   
-  // Split order into segments
-  let segments = [];
+  // Split order into segments (similar to original, but to create structured items)
+  const segments = [];
   const parts = orderText.split(/[,;]|and\s+(?=\d|one|two|three)/i);
   
   for (const part of parts) {
@@ -543,10 +543,11 @@ function extractItemsFromTranscript(transcript) {
     console.log('📝 Order segments:', segments);
   }
   
-  // Process each segment
+  // Convert segments to structured items (mimicking /get-total input)
+  const structuredItems = [];
   for (const segment of segments) {
     if (LOG_MODE === 'full') {
-      console.log('\n🔄 Processing:', segment);
+      console.log('\n🔄 Processing segment:', segment);
     }
     
     let quantity = 1;
@@ -578,18 +579,57 @@ function extractItemsFromTranscript(transcript) {
       console.log('🎯 Found:', menuItem);
     }
     
+    if (menuItem) {
+      structuredItems.push({
+        name: menuItem,
+        quantity: quantity,
+        spiceLevel: spiceLevel
+      });
+    } else if (LOG_MODE === 'full') {
+      console.log('⚠️ Item not found, skipping:', cleanedText);
+    }
+  }
+  
+  // Process structured items like /get-total
+  for (const item of structuredItems) {
+    let itemName = item.name.toLowerCase();
+    let quantity = parseInt(item.quantity) || 1;
+    let spiceLevel = item.spiceLevel;
+    
+    if (LOG_MODE === 'full') {
+      console.log(`\n🔄 Processing item: ${itemName} (qty: ${quantity})`);
+      if (spiceLevel) console.log(`  Spice level: ${spiceLevel}`);
+    }
+    
+    // Find the menu item
+    let menuItem = findMenuItem(itemName);
+    
     if (menuItem && MENU_ITEMS[menuItem]) {
-      const price = MENU_ITEMS[menuItem];
-      const modifications = [];
+      let price = MENU_ITEMS[menuItem];
+      let itemTotal = price * quantity;
       
-      // Add spice level if required
+      if (LOG_MODE === 'full') {
+        console.log(`  ✓ ${quantity}x ${menuItem} @ ${price} = ${itemTotal.toFixed(2)}`);
+      }
+      
+      // Check if spice level is required
+      if (requiresSpiceLevel(menuItem) && !spiceLevel) {
+        if (LOG_MODE === 'full') {
+          console.log(`  ⚠️ Missing required spice level for: ${menuItem} - skipping`);
+        }
+        continue; // Skip items with missing spice levels, like /get-total
+      }
+      
+      const modifications = [];
       if (spiceLevel && requiresSpiceLevel(menuItem)) {
         modifications.push(`spice: ${spiceLevel}`);
       }
       
       addItemToOrder(items, menuItem, quantity, price, modifications);
-    } else if (LOG_MODE === 'full') {
-      console.log('❌ Could not match:', cleanedText);
+    } else {
+      if (LOG_MODE === 'full') {
+        console.log(`  ⚠️ Item not found: ${itemName} - skipping`);
+      }
     }
   }
   
