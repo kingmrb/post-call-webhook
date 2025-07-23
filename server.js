@@ -4,9 +4,9 @@ const fetch = require('node-fetch');
 require('dotenv').config();
 
 // ============================================
-// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.3
+// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.4
 // Last Updated: July 2025
-// Features: AI order parsing, default mild spice level, improved final confirmation parsing
+// Features: AI order parsing, default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels
 // ============================================
 
 const app = express();
@@ -170,11 +170,10 @@ const MENU_ITEMS = {
 // Spice levels for Biryanis and Entrees
 const SPICE_LEVELS = ['very mild', 'mild', 'spicy', 'extra spicy'];
 
-// Items that require spice level
+// Items that require spice level (only biryanis and entrees)
 const SPICE_REQUIRED_ITEMS = [
   'biryani', 'curry', 'masala', 'vindaloo', 'tadka', 'kadai', 
-  'tikka', 'saag', 'spinach', 'chana', 'chole', 'aloo gobi',
-  'paneer', 'chicken', 'lamb', 'goat', 'shrimp', 'egg masala'
+  'saag', 'spinach', 'chana', 'chole', 'aloo gobi', 'methi malai mutter'
 ];
 
 const TAX_RATE = 0.065;
@@ -198,13 +197,37 @@ const ITEM_MAPPINGS = {
   'spl masala mirchi': 'spl masala mirchi bajji',
   'chicken sixty-five': 'chicken 65',
   'chicken 65 appetizer': 'chicken 65',
+  'chicken 65 with very mild': 'chicken 65',
+  'chicken 65 with mild': 'chicken 65',
+  'chicken 65 with spicy': 'chicken 65',
+  'chicken 65 with extra spicy': 'chicken 65',
   'majestic chicken': 'chicken majestic',
+  'chicken majestic with very mild': 'chicken majestic',
+  'chicken majestic with mild': 'chicken majestic',
+  'chicken majestic with spicy': 'chicken majestic',
+  'chicken majestic with extra spicy': 'chicken majestic',
   'chicken manchurian appetizer': 'chicken manchurian',
+  'chicken manchurian with very mild': 'chicken manchurian',
+  'chicken manchurian with mild': 'chicken manchurian',
+  'chicken manchurian with spicy': 'chicken manchurian',
+  'chicken manchurian with extra spicy': 'chicken manchurian',
   'special chicken pakora': 'spl chicken pakora',
   'spl pakora': 'spl chicken pakora',
   'chicken pakora': 'spl chicken pakora',
+  'spl chicken pakora with very mild': 'spl chicken pakora',
+  'spl chicken pakora with mild': 'spl chicken pakora',
+  'spl chicken pakora with spicy': 'spl chicken pakora',
+  'spl chicken pakora with extra spicy': 'spl chicken pakora',
   'cashew fry': 'cashew chicken fry',
   'chicken cashew fry': 'cashew chicken fry',
+  'cashew chicken fry with very mild': 'cashew chicken fry',
+  'cashew chicken fry with mild': 'cashew chicken fry',
+  'cashew chicken fry with spicy': 'cashew chicken fry',
+  'cashew chicken fry with extra spicy': 'cashew chicken fry',
+  'paneer 65 with very mild': 'paneer 65',
+  'paneer 65 with mild': 'paneer 65',
+  'paneer 65 with spicy': 'paneer 65',
+  'paneer 65 with extra spicy': 'paneer 65',
   
   // Entrees
   'dal': 'dal tadka',
@@ -279,14 +302,16 @@ CRITICAL PARSING RULES:
 3. Pay attention to quantity words: one=1, two=2, three=3, four=4, five=5
 4. "both" means the quantity applies to both/all items (don't create duplicates)
 5. For biryanis/entrees, extract spice levels; if none specified, use "mild"
-6. "sixty-five" or "65" in "chicken sixty-five biryani" is part of the dish name
+6. For other items (e.g., appetizers), include spice levels if specified, but do not require them
+7. "sixty-five" or "65" in "chicken sixty-five biryani" is part of the dish name
+8. Handle phrases like "with mild" or "spicy" correctly for all items
 
 IMPORTANT: Use these EXACT item names (case sensitive):
 - "spl masala mirchi bajji" or "special masala mirchi bajji" → "Spl Masala Mirchi Bajji"
 - "spinach paneer" or "palak paneer" → "Spinach Paneer" 
 - "mixed veg curry" or "mix veg curry" → "Mix Veg Curry"
 - "aloo gobi masala" → "Aloo Gobi Masala"
-- "chicken tikka kebab" → "Chicken Tikka Kebab"
+- "chicken tikka masala" → "Chicken Tikka Masala"
 - "chicken sixty-five" or "chicken 65" → "Chicken 65"
 - "chicken sixty-five biryani" or "chicken 65 biryani" → "Chicken 65 Biryani"
 - "goat dum biryani" → "Goat Dum Biryani"
@@ -299,6 +324,9 @@ IMPORTANT: Use these EXACT item names (case sensitive):
 - "tandoori chicken half" or "half tandoori chicken" → "Tandoori Chicken Half"
 - "tandoori chicken full" or "full tandoori chicken" → "Tandoori Chicken Full"
 - "tandoori mix grill" or "mix grill" → "Tandoori Mix Grill"
+- "chicken majestic" → "Chicken Majestic"
+- "chicken manchurian" → "Chicken Manchurian"
+- "cashew chicken fry" → "Cashew Chicken Fry"
 
 Order text to parse:
 "${orderText}"
@@ -308,7 +336,8 @@ IMPORTANT:
 - Never create duplicate entries for the same item
 - Parse the COMPLETE order text, don't stop early
 - Use the exact capitalization shown above
-- If spice level is missing for items requiring it, default to "mild"
+- For biryanis/entrees, if spice level is missing, default to "mild"
+- For appetizers (e.g., Chicken 65, Chicken Majestic), include spice level if specified (e.g., "Chicken 65 with spicy" → item: "Chicken 65", spice_level: "spicy")
 
 Return JSON array:
 [
@@ -316,6 +345,11 @@ Return JSON array:
     "quantity": 2,
     "item": "Chicken 65 Biryani",
     "spice_level": "mild"
+  },
+  {
+    "quantity": 1,
+    "item": "Chicken 65",
+    "spice_level": "spicy"
   }
 ]`;
 
@@ -381,8 +415,8 @@ function convertAIParsedToItems(parsedOrder) {
       const price = MENU_ITEMS[menuItemKey];
       const modifications = [];
       
-      // Add spice level if applicable
-      if (spiceLevel && requiresSpiceLevel(menuItemKey)) {
+      // Add spice level if specified, even for non-required items
+      if (spiceLevel) {
         modifications.push(`spice: ${spiceLevel}`);
       }
       
@@ -395,7 +429,7 @@ function convertAIParsedToItems(parsedOrder) {
   return items;
 }
 
-// Check if item requires spice level
+// Check if item requires spice level (only biryanis and entrees)
 function requiresSpiceLevel(itemName) {
   const itemLower = itemName.toLowerCase();
   return SPICE_REQUIRED_ITEMS.some(keyword => itemLower.includes(keyword));
@@ -422,7 +456,8 @@ function extractSpiceLevel(text) {
 function cleanItemText(text) {
   return text
     .replace(/\b(orders?\s+of|pieces?\s+of|order\s+of)\s*/gi, '') // Remove "order of", "orders of", "piece of"
-    .replace(/\b(very mild|mild|medium|spicy|extra spicy|very hot)\b(?!\s*(&|and)\s*sour)/gi, '') // Remove spice levels
+    .replace(/\bwith\s+(very mild|mild|medium|spicy|hot|extra spicy|very hot)\b(?!\s*(&|and)\s*sour)/gi, '') // Remove "with [spice level]"
+    .replace(/\b(very mild|mild|medium|spicy|hot|extra spicy|very hot)\b(?!\s*(&|and)\s*sour)/gi, '') // Remove standalone spice levels
     .replace(/\bhot\b(?!\s*(&|and)\s*sour)/gi, '') // Remove "hot" unless part of "hot & sour"
     .replace(/\b(the|of|a|an)\b/gi, ' ') // Remove filler words
     .replace(/\s+/g, ' ') // Normalize spaces
@@ -673,7 +708,7 @@ function extractItemsFromTranscript(transcript) {
       }
       
       const modifications = [];
-      if (spiceLevel && requiresSpiceLevel(menuItem)) {
+      if (spiceLevel) {
         modifications.push(`spice: ${spiceLevel}`);
       }
       
@@ -902,7 +937,7 @@ app.post('/calculate-order', async (req, res) => {
           total: itemTotal
         };
         
-        if (spiceLevel && requiresSpiceLevel(menuItem)) {
+        if (spiceLevel) {
           calcItem.spiceLevel = spiceLevel;
         }
         
@@ -1045,7 +1080,7 @@ app.post('/get-total', async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
-    service: 'Roti\'s Indian Restaurant Price Calculator v1.3',
+    service: 'Roti\'s Indian Restaurant Price Calculator v1.4',
     timestamp: new Date().toISOString()
   });
 });
@@ -1197,9 +1232,9 @@ app.post('/post-call', async (req, res) => {
 
 app.listen(port, () => {
   console.log('============================================');
-  console.log('✅ Roti\'s Indian Restaurant Server v1.3 - Started Successfully');
+  console.log('✅ Roti\'s Indian Restaurant Server v1.4 - Started Successfully');
   console.log(`📍 Listening on port ${port}`);
-  console.log('🔄 Features: AI order parsing, default mild spice level, improved final confirmation parsing');
+  console.log('🔄 Features: AI order parsing, default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels');
   console.log('📝 Toast integration ready (awaiting API credentials)');
   console.log('============================================');
 });
