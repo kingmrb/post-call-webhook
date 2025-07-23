@@ -486,33 +486,75 @@ function extractContactInfo(transcript) {
   let name = 'N/A';
   let address = 'N/A';
   
-  for (const turn of transcript) {
-    if (turn.role === 'user') {
-      // Phone number extraction (common Tampa/St. Pete area codes)
-      const phoneMatch = turn.message.match(/\b(813|727|941|352)[-.\s]?(\d{3})[-.\s]?(\d{4})\b/);
-      if (phoneMatch) {
-        phone = phoneMatch[1] + '-' + phoneMatch[2] + '-' + phoneMatch[3];
+  // Validate transcript
+  if (!Array.isArray(transcript) || transcript.length === 0) {
+    console.log('⚠️ Invalid or empty transcript in extractContactInfo');
+    return { phone, name, address };
+  }
+  
+  // Find the last AI confirmation message
+  let confirmationIndex = -1;
+  let confirmationMessage = null;
+  
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    const turn = transcript[i];
+    if (turn && turn.role === 'agent' && 
+        typeof turn.message === 'string' && 
+        /to confirm, your name is\s+(.+?)\s+and your phone number is\s+(.+?)\s*\.\s*is that correct\?/i.test(turn.message)) {
+      confirmationIndex = i;
+      confirmationMessage = turn.message;
+      break;
+    }
+  }
+  
+  // Verify customer confirmation and extract details
+  if (confirmationIndex !== -1 && confirmationIndex + 1 < transcript.length) {
+    const customerResponse = transcript[confirmationIndex + 1];
+    if (customerResponse && customerResponse.role === 'user' && 
+        typeof customerResponse.message === 'string' && 
+        /yes|correct|right|confirm|confirmed|that.?s right|yeah/i.test(customerResponse.message)) {
+      if (process.env.LOG_MODE === 'full') {
+        console.log('✅ Found last AI confirmation:', confirmationMessage);
+        console.log('✅ Customer confirmed:', customerResponse.message);
       }
       
-      // Name extraction
-      const namePatterns = [
-        /my name is\s+([a-zA-Z]+)(?:\s+and|\s+phone|\.|$)/i,
-        /i'm\s+([a-zA-Z]+)(?:\s+and|\s+phone|\.|$)/i,
-        /this is\s+([a-zA-Z]+)(?:\s+and|\s+phone|\.|$)/i,
-        /name is\s+([a-zA-Z]+)(?:\s+and|\s+phone|\.|$)/i
-      ];
-      
-      for (const pattern of namePatterns) {
-        const match = turn.message.match(pattern);
-        if (match && match[1]) {
-          name = match[1].trim();
-          break;
+      // Extract name
+      const nameMatch = confirmationMessage.match(/your name is\s+([a-zA-Z\s]+?)\s+and your phone number is/i);
+      if (nameMatch && nameMatch[1]) {
+        name = nameMatch[1].trim();
+        if (process.env.LOG_MODE === 'full') {
+          console.log('📋 Extracted name:', name);
         }
       }
       
-      // Address extraction for delivery
+      // Extract phone number
+      const phoneMatch = confirmationMessage.match(/your phone number is\s+(\d{3}[-.\s]?\d{3}[-.\s]?\d{4}|\(\d{3}\)\s*\d{3}[-.\s]?\d{4}|\d{10})/i);
+      if (phoneMatch && phoneMatch[1]) {
+        let rawPhone = phoneMatch[1].replace(/[^0-9]/g, '');
+        if (rawPhone.length === 10) {
+          phone = `${rawPhone.slice(0, 3)}-${rawPhone.slice(3, 6)}-${rawPhone.slice(6)}`;
+          if (process.env.LOG_MODE === 'full') {
+            console.log('📞 Extracted phone:', phone);
+          }
+        }
+      }
+    } else if (process.env.LOG_MODE === 'full') {
+      console.log('⚠️ Customer confirmation not found or invalid for:', confirmationMessage);
+    }
+  } else if (process.env.LOG_MODE === 'full') {
+    console.log('⚠️ No AI confirmation message found matching "to confirm, your name is ... and your phone number is ..."');
+  }
+  
+  // Extract address from user turns (unchanged from previous versions)
+  for (const turn of transcript) {
+    if (turn && turn.role === 'user' && typeof turn.message === 'string') {
       const addressMatch = turn.message.match(/(?:address is|live at|deliver to)\s+(.+?)(?:\.|,|$)/i);
-      if (addressMatch) address = addressMatch[1].trim();
+      if (addressMatch) {
+        address = addressMatch[1].trim();
+        if (process.env.LOG_MODE === 'full') {
+          console.log('🏠 Extracted address:', address);
+        }
+      }
     }
   }
   
