@@ -4,9 +4,9 @@ const fetch = require('node-fetch');
 require('dotenv').config();
 
 // ============================================
-// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.4
+// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.6
 // Last Updated: July 2025
-// Features: AI order parsing, default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels
+// Features: AI order parsing, default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, contact info extraction only from last confirmed AI confirmation
 // ============================================
 
 const app = express();
@@ -486,33 +486,85 @@ function extractContactInfo(transcript) {
   let name = 'N/A';
   let address = 'N/A';
   
-  for (const turn of transcript) {
-    if (turn.role === 'user') {
-      // Phone number extraction (common Tampa/St. Pete area codes)
-      const phoneMatch = turn.message.match(/\b(813|727|941|352)[-.\s]?(\d{3})[-.\s]?(\d{4})\b/);
-      if (phoneMatch) {
-        phone = phoneMatch[1] + '-' + phoneMatch[2] + '-' + phoneMatch[3];
+  // Step 1: Find the last AI confirmation message with name and phone number
+  let confirmationIndex = -1;
+  let confirmationMessage = null;
+  
+  // Search backwards to find the last occurrence
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    const turn = transcript[i];
+    if (turn.role === 'agent' && 
+        /to confirm, your name is\s+.*?\s+and your phone number is\s+.*?is that correct\?/i.test(turn.message)) {
+      confirmationIndex = i;
+      confirmationMessage = turn.message;
+      break;
+    }
+  }
+  
+  // Step 2: Verify customer confirmation and extract details
+  if (confirmationIndex !== -1 && confirmationIndex + 1 < transcript.length) {
+    const customerResponse = transcript[confirmationIndex + 1];
+    if (customerResponse.role === 'user' && 
+        /yes|correct|right|confirm|confirmed|that.?s right|yeah/i.test(customerResponse.message)) {
+      if (LOG_MODE === 'full') {
+        console.log('✅ Found last AI confirmation:', confirmationMessage);
+        console.log('✅ Customer confirmed:', customerResponse.message);
       }
       
-      // Name extraction
-      const namePatterns = [
-        /my name is\s+([a-zA-Z]+)(?:\s+and|\s+phone|\.|$)/i,
-        /i'm\s+([a-zA-Z]+)(?:\s+and|\s+phone|\.|$)/i,
-        /this is\s+([a-zA-Z]+)(?:\s+and|\s+phone|\.|$)/i,
-        /name is\s+([a-zA-Z]+)(?:\s+and|\s+phone|\.|$)/i
-      ];
-      
-      for (const pattern of namePatterns) {
-        const match = turn.message.match(pattern);
-        if (match && match[1]) {
-          name = match[1].trim();
-          break;
+      // Step 3: Extract name from "your name is [name]"
+      const nameMatch = confirmationMessage.match(/your name is\s+([a-zA-Z\s]+?)\s+and your phone number is/i);
+      if (nameMatch && nameMatch[1]) {
+        name = nameMatch[1].trim();
+        if (LOG_MODE === 'full') {
+          console.log('📋 Extracted name:', name);
+        }
+      } else {
+        if (LOG_MODE === 'full') {
+          console.log('⚠️ Failed to extract name from confirmation');
         }
       }
       
-      // Address extraction for delivery
+      // Step 4: Extract phone number from "your phone number is [number]"
+      const phoneMatch = confirmationMessage.match(/your phone number is\s+(\d{3}[-.\s]?\d{3}[-.\s]?\d{4}|\(\d{3}\)\s*\d{3}[-.\s]?\d{4}|\d{10})/i);
+      if (phoneMatch && phoneMatch[1]) {
+        // Normalize phone number to XXX-XXX-XXXX
+        let rawPhone = phoneMatch[1].replace(/[^0-9]/g, '');
+        if (rawPhone.length === 10) {
+          phone = `${rawPhone.slice(0, 3)}-${rawPhone.slice(3, 6)}-${rawPhone.slice(6)}`;
+          if (LOG_MODE === 'full') {
+            console.log('📞 Extracted phone:', phone);
+          }
+        } else {
+          if (LOG_MODE === 'full') {
+            console.log('⚠️ Invalid phone number format:', phoneMatch[1]);
+          }
+        }
+      } else {
+        if (LOG_MODE === 'full') {
+          console.log('⚠️ Failed to extract phone number from confirmation');
+        }
+      }
+    } else {
+      if (LOG_MODE === 'full') {
+        console.log('⚠️ Customer confirmation not found for:', confirmationMessage);
+      }
+    }
+  } else {
+    if (LOG_MODE === 'full') {
+      console.log('⚠️ No AI confirmation message found matching "to confirm, your name is ... and your phone number is ..."');
+    }
+  }
+  
+  // Step 5: Extract address from user turns (unchanged)
+  for (const turn of transcript) {
+    if (turn.role === 'user') {
       const addressMatch = turn.message.match(/(?:address is|live at|deliver to)\s+(.+?)(?:\.|,|$)/i);
-      if (addressMatch) address = addressMatch[1].trim();
+      if (addressMatch) {
+        address = addressMatch[1].trim();
+        if (LOG_MODE === 'full') {
+          console.log('🏠 Extracted address:', address);
+        }
+      }
     }
   }
   
@@ -1080,7 +1132,7 @@ app.post('/get-total', async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
-    service: 'Roti\'s Indian Restaurant Price Calculator v1.4',
+    service: 'Roti\'s Indian Restaurant Price Calculator v1.6',
     timestamp: new Date().toISOString()
   });
 });
@@ -1232,9 +1284,9 @@ app.post('/post-call', async (req, res) => {
 
 app.listen(port, () => {
   console.log('============================================');
-  console.log('✅ Roti\'s Indian Restaurant Server v1.4 - Started Successfully');
+  console.log('✅ Roti\'s Indian Restaurant Server v1.6 - Started Successfully');
   console.log(`📍 Listening on port ${port}`);
-  console.log('🔄 Features: AI order parsing, default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels');
+  console.log('🔄 Features: AI order parsing, default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, contact info extraction only from last confirmed AI confirmation');
   console.log('📝 Toast integration ready (awaiting API credentials)');
   console.log('============================================');
 });
