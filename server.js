@@ -4,9 +4,9 @@ const fetch = require('node-fetch');
 require('dotenv').config();
 
 // ============================================
-// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.0
-// Last Updated: January 2025
-// Features: Spice level handling, AI order parsing, simplified without Toast
+// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.1
+// Last Updated: July 2025
+// Features: Spice level handling, AI order parsing, improved transcript parsing
 // ============================================
 
 const app = express();
@@ -270,6 +270,7 @@ IMPORTANT: Use these EXACT item names (case sensitive):
 - "stuffed brinjal curry" → "Stuffed Brinjal Curry"
 - "egg masala" → "Egg Masala"
 - "butter chicken" → "Butter Chicken"
+- "paneer 65" → "Paneer 65"
 
 Order text to parse:
 "${orderText}"
@@ -528,9 +529,10 @@ function extractItemsFromTranscript(transcript) {
     return items;
   }
   
-  // Split order into segments (similar to original, but to create structured items)
+  // Split order into segments with improved regex
   const segments = [];
-  const parts = orderText.split(/[,;]|and\s+(?=\d|one|two|three)/i);
+  // Split on commas, "and", or semicolons, but preserve quantities and item names
+  const parts = orderText.split(/,\s*(?=(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)?\s*[a-z])/i);
   
   for (const part of parts) {
     const trimmed = part.trim().replace(/^and\s+/i, '');
@@ -543,7 +545,7 @@ function extractItemsFromTranscript(transcript) {
     console.log('📝 Order segments:', segments);
   }
   
-  // Convert segments to structured items (mimicking /get-total input)
+  // Convert segments to structured items
   const structuredItems = [];
   for (const segment of segments) {
     if (LOG_MODE === 'full') {
@@ -576,7 +578,7 @@ function extractItemsFromTranscript(transcript) {
     // Find menu item
     const menuItem = findMenuItem(cleanedText);
     if (LOG_MODE === 'full') {
-      console.log('🎯 Found:', menuItem);
+      console.log('🎯 Found:', menuItem || 'Not found');
     }
     
     if (menuItem) {
@@ -585,8 +587,8 @@ function extractItemsFromTranscript(transcript) {
         quantity: quantity,
         spiceLevel: spiceLevel
       });
-    } else if (LOG_MODE === 'full') {
-      console.log('⚠️ Item not found, skipping:', cleanedText);
+    } else {
+      console.log(`⚠️ Item not found in menu: ${cleanedText}`);
     }
   }
   
@@ -614,10 +616,8 @@ function extractItemsFromTranscript(transcript) {
       
       // Check if spice level is required
       if (requiresSpiceLevel(menuItem) && !spiceLevel) {
-        if (LOG_MODE === 'full') {
-          console.log(`  ⚠️ Missing required spice level for: ${menuItem} - skipping`);
-        }
-        continue; // Skip items with missing spice levels, like /get-total
+        console.log(`  ⚠️ Missing required spice level for: ${menuItem} - skipping`);
+        continue; // Skip items with missing spice levels
       }
       
       const modifications = [];
@@ -627,9 +627,7 @@ function extractItemsFromTranscript(transcript) {
       
       addItemToOrder(items, menuItem, quantity, price, modifications);
     } else {
-      if (LOG_MODE === 'full') {
-        console.log(`  ⚠️ Item not found: ${itemName} - skipping`);
-      }
+      console.log(`  ⚠️ Item not found in menu: ${itemName} - skipping`);
     }
   }
   
@@ -658,27 +656,21 @@ async function extractItemsFromTranscriptWithAI(transcript) {
       console.log('📍 Order text:', orderText);
     }
     
-    // Check if order is simple enough for regex parsing (optimization)
-    const hasComplexItems = orderText.includes('both') || orderText.includes('all') || 
-                           orderText.match(/\d+\s+\w+\s+with\s+\w+\s+spice/i);
+    // Always use AI parsing for reliability
+    const aiParsedOrder = await summarizeOrderWithAI(orderText);
     
-    // Only use AI for complex orders
-    if (hasComplexItems || OPENAI_API_KEY) {
-      const aiParsedOrder = await summarizeOrderWithAI(orderText);
-      
-      if (aiParsedOrder && aiParsedOrder.length > 0) {
-        if (LOG_MODE === 'full') {
-          console.log('🤖 Using AI-parsed order');
-        }
-        return convertAIParsedToItems(aiParsedOrder);
+    if (aiParsedOrder && aiParsedOrder.length > 0) {
+      if (LOG_MODE === 'full') {
+        console.log('🤖 Using AI-parsed order');
       }
+      return convertAIParsedToItems(aiParsedOrder);
     }
   }
   
   if (LOG_MODE === 'full') {
     console.log('🔄 Falling back to regex parsing');
   }
-  return null;
+  return extractItemsFromTranscript(transcript); // Fallback to regex parsing
 }
 
 async function extractOrderFromSummary(summary, fallbackTranscript) {
@@ -688,7 +680,7 @@ async function extractOrderFromSummary(summary, fallbackTranscript) {
       console.log('🎯 Trying transcript parsing first');
     }
     
-    // Try regex parsing first since it's more reliable for exact order confirmations
+    // Try regex parsing first
     const transcriptItems = extractItemsFromTranscript(fallbackTranscript);
     
     if (transcriptItems && transcriptItems.length > 0) {
@@ -727,7 +719,7 @@ async function extractOrderFromSummary(summary, fallbackTranscript) {
       };
     }
     
-    // Only try AI parsing if transcript parsing fails
+    // Try AI parsing if regex parsing fails
     if (LOG_MODE === 'full') {
       console.log('🎯 Falling back to AI-enhanced transcript parsing');
     }
@@ -987,7 +979,7 @@ app.post('/get-total', async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
-    service: 'Roti\'s Indian Restaurant Price Calculator v1.0',
+    service: 'Roti\'s Indian Restaurant Price Calculator v1.1',
     timestamp: new Date().toISOString()
   });
 });
@@ -1134,9 +1126,9 @@ app.post('/post-call', async (req, res) => {
 
 app.listen(port, () => {
   console.log('============================================');
-  console.log('✅ Roti\'s Indian Restaurant Server v1.0 - Started Successfully');
+  console.log('✅ Roti\'s Indian Restaurant Server v1.1 - Started Successfully');
   console.log(`📍 Listening on port ${port}`);
-  console.log('🔄 Features: AI order parsing, spice level validation');
+  console.log('🔄 Features: AI order parsing, spice level validation, improved transcript parsing');
   console.log('📝 Toast integration ready (awaiting API credentials)');
   console.log('============================================');
 });
