@@ -4,9 +4,9 @@ const fetch = require('node-fetch');
 require('dotenv').config();
 
 // ============================================
-// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.2
+// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.3
 // Last Updated: July 2025
-// Features: Spice level handling, AI order parsing, default mild spice level
+// Features: AI order parsing, default mild spice level, improved final confirmation parsing
 // ============================================
 
 const app = express();
@@ -196,6 +196,15 @@ const ITEM_MAPPINGS = {
   'special masala mirchi bajji': 'spl masala mirchi bajji',
   'special masala mirchi': 'spl masala mirchi bajji',
   'spl masala mirchi': 'spl masala mirchi bajji',
+  'chicken sixty-five': 'chicken 65',
+  'chicken 65 appetizer': 'chicken 65',
+  'majestic chicken': 'chicken majestic',
+  'chicken manchurian appetizer': 'chicken manchurian',
+  'special chicken pakora': 'spl chicken pakora',
+  'spl pakora': 'spl chicken pakora',
+  'chicken pakora': 'spl chicken pakora',
+  'cashew fry': 'cashew chicken fry',
+  'chicken cashew fry': 'cashew chicken fry',
   
   // Entrees
   'dal': 'dal tadka',
@@ -215,6 +224,20 @@ const ITEM_MAPPINGS = {
   'mutton curry': 'goat curry',
   'prawn curry': 'shrimp curry',
   'prawns curry': 'shrimp curry',
+  'lamb pepper': 'lamb pepper fry',
+  'shrimp stir fry': 'shrimp fry',
+  
+  // Tandoori
+  'paneer kebab': 'paneer tikka kebab',
+  'chicken tikka': 'chicken tikka kebab',
+  'malai kebab': 'chicken malai kebab',
+  'chicken malai': 'chicken malai kebab',
+  'tandoori half chicken': 'tandoori chicken half',
+  'half tandoori chicken': 'tandoori chicken half',
+  'tandoori full chicken': 'tandoori chicken full',
+  'full tandoori chicken': 'tandoori chicken full',
+  'tandoori grill': 'tandoori mix grill',
+  'mix grill': 'tandoori mix grill',
   
   // Biryanis
   'veg biryani': 'veg dum biryani',
@@ -248,7 +271,7 @@ async function summarizeOrderWithAI(orderText) {
   }
 
   try {
-    const prompt = `You are an Indian restaurant order parser. Parse ALL items from this order text.
+    const prompt = `You are an Indian restaurant order parser. Parse ALL items from this order text, which is the final confirmed order by the customer.
 
 CRITICAL PARSING RULES:
 1. Extract EVERY SINGLE ITEM with correct quantities
@@ -264,6 +287,7 @@ IMPORTANT: Use these EXACT item names (case sensitive):
 - "mixed veg curry" or "mix veg curry" → "Mix Veg Curry"
 - "aloo gobi masala" → "Aloo Gobi Masala"
 - "chicken tikka kebab" → "Chicken Tikka Kebab"
+- "chicken sixty-five" or "chicken 65" → "Chicken 65"
 - "chicken sixty-five biryani" or "chicken 65 biryani" → "Chicken 65 Biryani"
 - "goat dum biryani" → "Goat Dum Biryani"
 - "mango lassi" → "Mango Lassi"
@@ -271,6 +295,10 @@ IMPORTANT: Use these EXACT item names (case sensitive):
 - "egg masala" → "Egg Masala"
 - "butter chicken" → "Butter Chicken"
 - "paneer 65" → "Paneer 65"
+- "spl chicken pakora" or "special chicken pakora" → "Spl Chicken Pakora"
+- "tandoori chicken half" or "half tandoori chicken" → "Tandoori Chicken Half"
+- "tandoori chicken full" or "full tandoori chicken" → "Tandoori Chicken Full"
+- "tandoori mix grill" or "mix grill" → "Tandoori Mix Grill"
 
 Order text to parse:
 "${orderText}"
@@ -393,13 +421,11 @@ function extractSpiceLevel(text) {
 
 function cleanItemText(text) {
   return text
-    .replace(/\b(orders?\s+of|pieces?\s+of)\s*/gi, '')
-    // Only remove spice levels, not "hot" when it's part of "hot & sour" or "hot and sour"
-    .replace(/\b(very mild|mild|medium|spicy|extra spicy|very hot)\b(?!\s*(&|and)\s*sour)/gi, '')
-    // Don't remove "hot" if followed by "&" or "and"
-    .replace(/\bhot\b(?!\s*(&|and)\s*sour)/gi, '')
-    .replace(/\b(the|of|a|an)\b/gi, ' ')
-    .replace(/\s+/g, ' ')
+    .replace(/\b(orders?\s+of|pieces?\s+of|order\s+of)\s*/gi, '') // Remove "order of", "orders of", "piece of"
+    .replace(/\b(very mild|mild|medium|spicy|extra spicy|very hot)\b(?!\s*(&|and)\s*sour)/gi, '') // Remove spice levels
+    .replace(/\bhot\b(?!\s*(&|and)\s*sour)/gi, '') // Remove "hot" unless part of "hot & sour"
+    .replace(/\b(the|of|a|an)\b/gi, ' ') // Remove filler words
+    .replace(/\s+/g, ' ') // Normalize spaces
     .trim();
 }
 
@@ -492,8 +518,9 @@ function extractItemsFromTranscript(transcript) {
     console.log('🔍 Full conversation:', fullConversation);
   }
   
-  // Find order confirmation
+  // Find the FINAL order confirmation
   let orderText = '';
+  let confirmationIndex = -1;
   const patterns = [
     /your final order is[:\s]*(.+?)(?:\.\s*is that correct|\?\s*is that correct|is that correct)/i,
     /got it[!.]?\s*your final order is[:\s]*(.+?)(?:\.\s*is that correct|\?\s*is that correct|is that correct)/i,
@@ -516,10 +543,15 @@ function extractItemsFromTranscript(transcript) {
   
   if (bestMatch) {
     orderText = bestMatch[1].trim();
-    // Remove any trailing period that might be before "is that correct?"
+    // Remove any trailing period
     orderText = orderText.replace(/\.\s*$/, '');
+    // Find the index of the turn containing the confirmation
+    confirmationIndex = transcript.findIndex(turn => 
+      turn.role === 'agent' && turn.message.toLowerCase().includes(orderText.toLowerCase())
+    );
     if (LOG_MODE === 'full') {
-      console.log('✅ Using order confirmation:', orderText);
+      console.log('✅ Using final order confirmation:', orderText);
+      console.log('📍 Confirmation found at turn index:', confirmationIndex);
     }
   }
   
@@ -530,10 +562,29 @@ function extractItemsFromTranscript(transcript) {
     return items;
   }
   
+  // Verify customer confirmation
+  let isCustomerConfirmed = false;
+  if (confirmationIndex !== -1 && confirmationIndex + 1 < transcript.length) {
+    const customerResponse = transcript[confirmationIndex + 1];
+    if (customerResponse.role === 'user' && 
+        /yes|correct|right|confirm|confirmed|that.?s right|yeah/i.test(customerResponse.message)) {
+      isCustomerConfirmed = true;
+      if (LOG_MODE === 'full') {
+        console.log('✅ Customer confirmed order:', customerResponse.message);
+      }
+    }
+  }
+  
+  if (!isCustomerConfirmed) {
+    if (LOG_MODE === 'full') {
+      console.log('⚠️ Customer confirmation not found, proceeding with last order confirmation');
+    }
+  }
+  
   // Split order into segments with improved regex
   const segments = [];
-  // Split on commas, but preserve quantities and item names
-  const parts = orderText.split(/,\s*(?=(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)?\s*[a-z])/i);
+  // Split on commas or "and", preserving quantities and item names
+  const parts = orderText.split(/,\s*(?=(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)?\s*[a-z])|and\s+(?=(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)?\s*[a-z])/i);
   
   for (const part of parts) {
     const trimmed = part.trim().replace(/^and\s+/i, '');
@@ -651,6 +702,30 @@ async function extractItemsFromTranscriptWithAI(transcript) {
     let orderText = lastMatch[1].trim();
     
     orderText = orderText.replace(/\.\s*$/, '');
+    
+    // Find the turn index of the final confirmation
+    const confirmationIndex = transcript.findIndex(turn => 
+      turn.role === 'agent' && turn.message.toLowerCase().includes(orderText.toLowerCase())
+    );
+    
+    // Verify customer confirmation
+    let isCustomerConfirmed = false;
+    if (confirmationIndex !== -1 && confirmationIndex + 1 < transcript.length) {
+      const customerResponse = transcript[confirmationIndex + 1];
+      if (customerResponse.role === 'user' && 
+          /yes|correct|right|confirm|confirmed|that.?s right|yeah/i.test(customerResponse.message)) {
+        isCustomerConfirmed = true;
+        if (LOG_MODE === 'full') {
+          console.log('✅ Customer confirmed order:', customerResponse.message);
+        }
+      }
+    }
+    
+    if (!isCustomerConfirmed) {
+      if (LOG_MODE === 'full') {
+        console.log('⚠️ Customer confirmation not found, proceeding with last order confirmation');
+      }
+    }
     
     if (LOG_MODE === 'full') {
       console.log(`✅ Found ${matches.length} order confirmation(s), using the LAST one`);
@@ -793,7 +868,6 @@ app.post('/calculate-order', async (req, res) => {
     
     let calculatedItems = [];
     let subtotal = 0;
-    let missingSpiceItems = [];
     
     // Process each item
     for (const item of items) {
@@ -971,7 +1045,7 @@ app.post('/get-total', async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
-    service: 'Roti\'s Indian Restaurant Price Calculator v1.2',
+    service: 'Roti\'s Indian Restaurant Price Calculator v1.3',
     timestamp: new Date().toISOString()
   });
 });
@@ -1033,18 +1107,23 @@ app.post('/post-call', async (req, res) => {
     console.log('📞 Call Summary - ID:', callId);
     console.log('='.repeat(60));
     
-    // Find order confirmation
-    const orderConfirmationIndex = transcript.findIndex(turn => 
-      turn.message && turn.message.includes('Your final order is')
-    );
+    // Find final order confirmation
+    let confirmationIndex = -1;
+    for (let i = transcript.length - 1; i >= 0; i--) {
+      if (transcript[i].role === 'agent' && 
+          /your final order is|got it.*?your final order is|here's your order|to confirm/i.test(transcript[i].message)) {
+        confirmationIndex = i;
+        break;
+      }
+    }
     
-    if (orderConfirmationIndex !== -1) {
-      console.log('\n📝 Order Confirmation:');
-      console.log('Agent:', transcript[orderConfirmationIndex].message);
+    if (confirmationIndex !== -1) {
+      console.log('\n📝 Final Order Confirmation:');
+      console.log('Agent:', transcript[confirmationIndex].message);
       
       // Look for customer confirmation
-      if (orderConfirmationIndex + 1 < transcript.length) {
-        console.log('Customer:', transcript[orderConfirmationIndex + 1].message);
+      if (confirmationIndex + 1 < transcript.length) {
+        console.log('Customer:', transcript[confirmationIndex + 1].message);
       }
     }
   } else {
@@ -1118,9 +1197,9 @@ app.post('/post-call', async (req, res) => {
 
 app.listen(port, () => {
   console.log('============================================');
-  console.log('✅ Roti\'s Indian Restaurant Server v1.2 - Started Successfully');
+  console.log('✅ Roti\'s Indian Restaurant Server v1.3 - Started Successfully');
   console.log(`📍 Listening on port ${port}`);
-  console.log('🔄 Features: AI order parsing, spice level validation, default mild spice level');
+  console.log('🔄 Features: AI order parsing, default mild spice level, improved final confirmation parsing');
   console.log('📝 Toast integration ready (awaiting API credentials)');
   console.log('============================================');
 });
