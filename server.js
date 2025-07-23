@@ -4,9 +4,9 @@ const fetch = require('node-fetch');
 require('dotenv').config();
 
 // ============================================
-// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.1
+// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.2
 // Last Updated: July 2025
-// Features: Spice level handling, AI order parsing, improved transcript parsing
+// Features: Spice level handling, AI order parsing, default mild spice level
 // ============================================
 
 const app = express();
@@ -255,7 +255,7 @@ CRITICAL PARSING RULES:
 2. "two chicken biryanis both with mild" = quantity: 2, NOT two separate entries
 3. Pay attention to quantity words: one=1, two=2, three=3, four=4, five=5
 4. "both" means the quantity applies to both/all items (don't create duplicates)
-5. For biryanis/entrees, extract spice levels
+5. For biryanis/entrees, extract spice levels; if none specified, use "mild"
 6. "sixty-five" or "65" in "chicken sixty-five biryani" is part of the dish name
 
 IMPORTANT: Use these EXACT item names (case sensitive):
@@ -280,13 +280,14 @@ IMPORTANT:
 - Never create duplicate entries for the same item
 - Parse the COMPLETE order text, don't stop early
 - Use the exact capitalization shown above
+- If spice level is missing for items requiring it, default to "mild"
 
 Return JSON array:
 [
   {
     "quantity": 2,
     "item": "Chicken 65 Biryani",
-    "spice_level": "spicy"
+    "spice_level": "mild"
   }
 ]`;
 
@@ -340,7 +341,7 @@ function convertAIParsedToItems(parsedOrder) {
   for (const orderItem of parsedOrder) {
     let itemName = orderItem.item.toLowerCase();
     let quantity = orderItem.quantity || 1;
-    let spiceLevel = orderItem.spice_level;
+    let spiceLevel = orderItem.spice_level || (requiresSpiceLevel(orderItem.item) ? 'mild' : null);
     
     console.log(`\n🔄 Converting AI item: ${orderItem.item}`);
     if (spiceLevel) console.log(`  Spice level: ${spiceLevel}`);
@@ -352,8 +353,8 @@ function convertAIParsedToItems(parsedOrder) {
       const price = MENU_ITEMS[menuItemKey];
       const modifications = [];
       
-      // Add spice level if applicable and not MISSING_SPICE
-      if (spiceLevel && spiceLevel !== 'MISSING_SPICE' && requiresSpiceLevel(menuItemKey)) {
+      // Add spice level if applicable
+      if (spiceLevel && requiresSpiceLevel(menuItemKey)) {
         modifications.push(`spice: ${spiceLevel}`);
       }
       
@@ -531,7 +532,7 @@ function extractItemsFromTranscript(transcript) {
   
   // Split order into segments with improved regex
   const segments = [];
-  // Split on commas, "and", or semicolons, but preserve quantities and item names
+  // Split on commas, but preserve quantities and item names
   const parts = orderText.split(/,\s*(?=(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)?\s*[a-z])/i);
   
   for (const part of parts) {
@@ -616,8 +617,8 @@ function extractItemsFromTranscript(transcript) {
       
       // Check if spice level is required
       if (requiresSpiceLevel(menuItem) && !spiceLevel) {
-        console.log(`  ⚠️ Missing required spice level for: ${menuItem} - skipping`);
-        continue; // Skip items with missing spice levels
+        console.log(`  🌶️ No spice level specified for ${menuItem}, defaulting to mild`);
+        spiceLevel = 'mild';
       }
       
       const modifications = [];
@@ -813,8 +814,8 @@ app.post('/calculate-order', async (req, res) => {
         
         // Check if spice level is required but missing
         if (requiresSpiceLevel(menuItem) && !spiceLevel) {
-          missingSpiceItems.push(menuItem);
-          console.log(`  ⚠️ Missing required spice level for: ${menuItem}`);
+          console.log(`  🌶️ No spice level specified for ${menuItem}, defaulting to mild`);
+          spiceLevel = 'mild';
         }
         
         let itemTotal = price * quantity;
@@ -839,15 +840,6 @@ app.post('/calculate-order', async (req, res) => {
           suggestion: "Please check the item name and try again"
         });
       }
-    }
-    
-    // Check for missing spice levels
-    if (missingSpiceItems.length > 0) {
-      return res.status(400).json({
-        error: 'Missing spice levels',
-        message: `Please specify spice level (very mild, mild, spicy, or extra spicy) for: ${missingSpiceItems.join(', ')}`,
-        missingSpiceItems: missingSpiceItems
-      });
     }
     
     // Calculate totals
@@ -979,7 +971,7 @@ app.post('/get-total', async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
-    service: 'Roti\'s Indian Restaurant Price Calculator v1.1',
+    service: 'Roti\'s Indian Restaurant Price Calculator v1.2',
     timestamp: new Date().toISOString()
   });
 });
@@ -1126,9 +1118,9 @@ app.post('/post-call', async (req, res) => {
 
 app.listen(port, () => {
   console.log('============================================');
-  console.log('✅ Roti\'s Indian Restaurant Server v1.1 - Started Successfully');
+  console.log('✅ Roti\'s Indian Restaurant Server v1.2 - Started Successfully');
   console.log(`📍 Listening on port ${port}`);
-  console.log('🔄 Features: AI order parsing, spice level validation, improved transcript parsing');
+  console.log('🔄 Features: AI order parsing, spice level validation, default mild spice level');
   console.log('📝 Toast integration ready (awaiting API credentials)');
   console.log('============================================');
 });
