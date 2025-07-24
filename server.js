@@ -4,9 +4,9 @@ const fetch = require('node-fetch');
 require('dotenv').config();
 
 // ============================================
-// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.5
+// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.5.1
 // Last Updated: July 2025
-// Features: AI order parsing from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction
+// Features: AI order parsing from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction, fixed async issue in extractItemsFromTranscript
 // ============================================
 
 const app = express();
@@ -587,7 +587,7 @@ function addItemToOrder(items, itemName, quantity, price, modifications = []) {
   }
 }
 
-function extractItemsFromTranscript(transcript) {
+async function extractItemsFromTranscript(transcript) {
   const items = [];
   
   // Validate transcript
@@ -805,7 +805,7 @@ app.post('/calculate-order', async (req, res) => {
         const calcItem = {
           name: menuItem,
           quantity: quantity,
-          unitPrice: price,
+          unitPrice: dentalPrice,
           total: itemTotal
         };
         
@@ -952,7 +952,7 @@ app.post('/get-total', async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
-    service: 'Roti\'s Indian Restaurant Price Calculator v1.5',
+    service: 'Roti\'s Indian Restaurant Price Calculator v1.5.1',
     timestamp: new Date().toISOString()
   });
 });
@@ -986,7 +986,6 @@ app.post('/post-call', async (req, res) => {
   if (LOG_MODE === 'full') {
     console.log('📞 Call ID:', callId);
     console.log('📊 Call Status:', status);
-    console.log('📝 Raw transcript:', JSON.stringify(transcript, null, 2));
   }
   
   // Check if we've already processed this call
@@ -1002,20 +1001,11 @@ app.post('/post-call', async (req, res) => {
     addProcessedCall(callId);
   }
 
-  if (!transcript || !Array.isArray(transcript) || transcript.length === 0) {
+  if (!transcript || transcript.length === 0) {
     if (LOG_MODE === 'full') {
       console.log('⚠️ No transcript found in webhook payload');
     }
     return res.status(200).send('✅ Webhook received - No transcript to process');
-  }
-
-  // Validate transcript entries
-  const validTranscript = transcript.filter(turn => 
-    turn && typeof turn === 'object' && turn.role && typeof turn.message === 'string'
-  );
-  if (validTranscript.length < transcript.length) {
-    console.log('⚠️ Found invalid transcript entries:', 
-      transcript.filter(turn => !turn || typeof turn !== 'object' || !turn.role || typeof turn.message !== 'string'));
   }
 
   // In summary mode, only show order confirmation exchanges
@@ -1026,10 +1016,9 @@ app.post('/post-call', async (req, res) => {
     
     // Find final order confirmation
     let confirmationIndex = -1;
-    for (let i = validTranscript.length - 1; i >= 0; i--) {
-      if (validTranscript[i].role === 'agent' && 
-          typeof validTranscript[i].message === 'string' && 
-          /your final order is|got it.*?your final order is|here's your order|to confirm/i.test(validTranscript[i].message)) {
+    for (let i = transcript.length - 1; i >= 0; i--) {
+      if (transcript[i].role === 'agent' && 
+          /your final order is|got it.*?your final order is|here's your order|to confirm/i.test(transcript[i].message)) {
         confirmationIndex = i;
         break;
       }
@@ -1037,19 +1026,21 @@ app.post('/post-call', async (req, res) => {
     
     if (confirmationIndex !== -1) {
       console.log('\n📝 Final Order Confirmation:');
-      console.log('Agent:', validTranscript[confirmationIndex].message);
+      console.log('Agent:', transcript[confirmationIndex].message);
       
       // Look for customer confirmation
-      if (confirmationIndex + 1 < validTranscript.length) {
-        console.log('Customer:', validTranscript[confirmationIndex + 1].message);
+      if (confirmationIndex + 1 < transcript.length) {
+        console.log('Customer:', transcript[confirmationIndex + 1].message);
       }
     }
   } else {
     // Full logging mode
-    console.log('\n📝 Processing transcript with', validTranscript.length, 'valid turns');
+    console.log('\n📝 Processing transcript with', transcript.length, 'turns');
     console.log('-'.repeat(60));
-    validTranscript.forEach(turn => {
-      console.log((turn.role === 'agent' ? 'Agent' : 'Customer') + ': "' + turn.message + '"');
+    transcript.forEach(turn => {
+      if (turn.role && turn.message) {
+        console.log((turn.role === 'agent' ? 'Agent' : 'Customer') + ': "' + turn.message + '"');
+      }
     });
   }
 
@@ -1071,7 +1062,7 @@ app.post('/post-call', async (req, res) => {
     console.log('\n🔄 Starting order extraction...');
   }
   
-  const detectedOrder = await extractOrderFromSummary(summaryToUse, validTranscript);
+  const detectedOrder = await extractOrderFromSummary(summaryToUse, transcript);
 
   if (detectedOrder) {
     if (LOG_MODE === 'summary') {
@@ -1113,9 +1104,9 @@ app.post('/post-call', async (req, res) => {
 
 app.listen(port, () => {
   console.log('============================================');
-  console.log('✅ Roti\'s Indian Restaurant Server v1.5 - Started Successfully');
+  console.log('✅ Roti\'s Indian Restaurant Server v1.5.1 - Started Successfully');
   console.log(`📍 Listening on port ${port}`);
-  console.log('🔄 Features: AI order parsing from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction');
+  console.log('🔄 Features: AI order parsing from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction, fixed async issue in extractItemsFromTranscript');
   console.log('📝 Toast integration ready (awaiting API credentials)');
   console.log('============================================');
 });
