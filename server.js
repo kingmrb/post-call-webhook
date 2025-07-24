@@ -4,9 +4,9 @@ const fetch = require('node-fetch');
 require('dotenv').config();
 
 // ============================================
-// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.4
+// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.5
 // Last Updated: July 2025
-// Features: AI order parsing, default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels
+// Features: AI order parsing from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction
 // ============================================
 
 const app = express();
@@ -589,7 +589,18 @@ function addItemToOrder(items, itemName, quantity, price, modifications = []) {
 
 function extractItemsFromTranscript(transcript) {
   const items = [];
-  const fullConversation = transcript.map(t => t.message).join(' ').toLowerCase();
+  
+  // Validate transcript
+  if (!Array.isArray(transcript) || transcript.length === 0) {
+    console.log('⚠️ Invalid or empty transcript in extractItemsFromTranscript');
+    return items;
+  }
+  
+  const fullConversation = transcript
+    .filter(turn => turn && turn.message && typeof turn.message === 'string')
+    .map(t => t.message)
+    .join(' ')
+    .toLowerCase();
   
   if (LOG_MODE === 'full') {
     console.log('🔍 Full conversation:', fullConversation);
@@ -624,7 +635,9 @@ function extractItemsFromTranscript(transcript) {
     orderText = orderText.replace(/\.\s*$/, '');
     // Find the index of the turn containing the confirmation
     confirmationIndex = transcript.findIndex(turn => 
-      turn.role === 'agent' && turn.message.toLowerCase().includes(orderText.toLowerCase())
+      turn && turn.role === 'agent' && 
+      turn.message && typeof turn.message === 'string' && 
+      turn.message.toLowerCase().includes(orderText.toLowerCase())
     );
     if (LOG_MODE === 'full') {
       console.log('✅ Using final order confirmation:', orderText);
@@ -643,7 +656,8 @@ function extractItemsFromTranscript(transcript) {
   let isCustomerConfirmed = false;
   if (confirmationIndex !== -1 && confirmationIndex + 1 < transcript.length) {
     const customerResponse = transcript[confirmationIndex + 1];
-    if (customerResponse.role === 'user' && 
+    if (customerResponse && customerResponse.role === 'user' && 
+        customerResponse.message && typeof customerResponse.message === 'string' && 
         /yes|correct|right|confirm|confirmed|that.?s right|yeah/i.test(customerResponse.message)) {
       isCustomerConfirmed = true;
       if (LOG_MODE === 'full') {
@@ -658,187 +672,42 @@ function extractItemsFromTranscript(transcript) {
     }
   }
   
-  // Split order into segments with improved regex
-  const segments = [];
-  // Split on commas or "and", preserving quantities and item names
-  const parts = orderText.split(/,\s*(?=(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)?\s*[a-z])|and\s+(?=(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)?\s*[a-z])/i);
+  // Use AI to parse the order text
+  const aiParsedOrder = await summarizeOrderWithAI(orderText);
   
-  for (const part of parts) {
-    const trimmed = part.trim().replace(/^and\s+/i, '');
-    if (trimmed.length > 2) {
-      segments.push(trimmed);
+  if (aiParsedOrder && aiParsedOrder.length > 0) {
+    if (LOG_MODE === 'full') {
+      console.log('🤖 Using AI-parsed order');
     }
+    return convertAIParsedToItems(aiParsedOrder);
   }
   
   if (LOG_MODE === 'full') {
-    console.log('📝 Order segments:', segments);
+    console.log('⚠️ AI parsing failed, returning empty items');
   }
-  
-  // Convert segments to structured items
-  const structuredItems = [];
-  for (const segment of segments) {
-    if (LOG_MODE === 'full') {
-      console.log('\n🔄 Processing segment:', segment);
-    }
-    
-    let quantity = 1;
-    let itemText = segment;
-    let spiceLevel = null;
-    
-    // Extract quantity
-    const qtyMatch = segment.match(/^(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(.+)/i);
-    if (qtyMatch) {
-      quantity = parseQuantity(qtyMatch[1]);
-      itemText = qtyMatch[2].trim();
-    }
-    
-    // Extract spice level
-    spiceLevel = extractSpiceLevel(segment);
-    if (spiceLevel && LOG_MODE === 'full') {
-      console.log('🌶️ Spice level:', spiceLevel);
-    }
-    
-    // Clean item text
-    const cleanedText = cleanItemText(itemText);
-    if (LOG_MODE === 'full') {
-      console.log('🧹 Cleaned:', cleanedText);
-    }
-    
-    // Find menu item
-    const menuItem = findMenuItem(cleanedText);
-    if (LOG_MODE === 'full') {
-      console.log('🎯 Found:', menuItem || 'Not found');
-    }
-    
-    if (menuItem) {
-      structuredItems.push({
-        name: menuItem,
-        quantity: quantity,
-        spiceLevel: spiceLevel
-      });
-    } else {
-      console.log(`⚠️ Item not found in menu: ${cleanedText}`);
-    }
-  }
-  
-  // Process structured items like /get-total
-  for (const item of structuredItems) {
-    let itemName = item.name.toLowerCase();
-    let quantity = parseInt(item.quantity) || 1;
-    let spiceLevel = item.spiceLevel;
-    
-    if (LOG_MODE === 'full') {
-      console.log(`\n🔄 Processing item: ${itemName} (qty: ${quantity})`);
-      if (spiceLevel) console.log(`  Spice level: ${spiceLevel}`);
-    }
-    
-    // Find the menu item
-    let menuItem = findMenuItem(itemName);
-    
-    if (menuItem && MENU_ITEMS[menuItem]) {
-      let price = MENU_ITEMS[menuItem];
-      let itemTotal = price * quantity;
-      
-      if (LOG_MODE === 'full') {
-        console.log(`  ✓ ${quantity}x ${menuItem} @ ${price} = ${itemTotal.toFixed(2)}`);
-      }
-      
-      // Check if spice level is required
-      if (requiresSpiceLevel(menuItem) && !spiceLevel) {
-        console.log(`  🌶️ No spice level specified for ${menuItem}, defaulting to mild`);
-        spiceLevel = 'mild';
-      }
-      
-      const modifications = [];
-      if (spiceLevel) {
-        modifications.push(`spice: ${spiceLevel}`);
-      }
-      
-      addItemToOrder(items, menuItem, quantity, price, modifications);
-    } else {
-      console.log(`  ⚠️ Item not found in menu: ${itemName} - skipping`);
-    }
-  }
-  
   return items;
 }
 
 // Enhanced extraction with AI
 async function extractItemsFromTranscriptWithAI(transcript) {
-  const fullConversation = transcript.map(t => t.message).join(' ').toLowerCase();
-  
   if (LOG_MODE === 'full') {
-    console.log('🔍 Looking for "Your final order is" in conversation...');
+    console.log('🔍 Using AI-enhanced parsing via extractItemsFromTranscript');
   }
-  
-  const regex = /your final order is[:\s]+(.+?)(?:\.\s*is that correct|\?\s*is that correct|is that correct)/gis;
-  const matches = [...fullConversation.matchAll(regex)];
-  
-  if (matches.length > 0) {
-    const lastMatch = matches[matches.length - 1];
-    let orderText = lastMatch[1].trim();
-    
-    orderText = orderText.replace(/\.\s*$/, '');
-    
-    // Find the turn index of the final confirmation
-    const confirmationIndex = transcript.findIndex(turn => 
-      turn.role === 'agent' && turn.message.toLowerCase().includes(orderText.toLowerCase())
-    );
-    
-    // Verify customer confirmation
-    let isCustomerConfirmed = false;
-    if (confirmationIndex !== -1 && confirmationIndex + 1 < transcript.length) {
-      const customerResponse = transcript[confirmationIndex + 1];
-      if (customerResponse.role === 'user' && 
-          /yes|correct|right|confirm|confirmed|that.?s right|yeah/i.test(customerResponse.message)) {
-        isCustomerConfirmed = true;
-        if (LOG_MODE === 'full') {
-          console.log('✅ Customer confirmed order:', customerResponse.message);
-        }
-      }
-    }
-    
-    if (!isCustomerConfirmed) {
-      if (LOG_MODE === 'full') {
-        console.log('⚠️ Customer confirmation not found, proceeding with last order confirmation');
-      }
-    }
-    
-    if (LOG_MODE === 'full') {
-      console.log(`✅ Found ${matches.length} order confirmation(s), using the LAST one`);
-      console.log('📍 Order text:', orderText);
-    }
-    
-    // Always use AI parsing for reliability
-    const aiParsedOrder = await summarizeOrderWithAI(orderText);
-    
-    if (aiParsedOrder && aiParsedOrder.length > 0) {
-      if (LOG_MODE === 'full') {
-        console.log('🤖 Using AI-parsed order');
-      }
-      return convertAIParsedToItems(aiParsedOrder);
-    }
-  }
-  
-  if (LOG_MODE === 'full') {
-    console.log('🔄 Falling back to regex parsing');
-  }
-  return extractItemsFromTranscript(transcript); // Fallback to regex parsing
+  return await extractItemsFromTranscript(transcript);
 }
 
 async function extractOrderFromSummary(summary, fallbackTranscript) {
   // Try transcript parsing FIRST (most reliable)
-  if (fallbackTranscript && fallbackTranscript.length > 0) {
+  if (fallbackTranscript && Array.isArray(fallbackTranscript) && fallbackTranscript.length > 0) {
     if (LOG_MODE === 'full') {
       console.log('🎯 Trying transcript parsing first');
     }
     
-    // Try regex parsing first
-    const transcriptItems = extractItemsFromTranscript(fallbackTranscript);
+    const transcriptItems = await extractItemsFromTranscript(fallbackTranscript);
     
     if (transcriptItems && transcriptItems.length > 0) {
       if (LOG_MODE === 'full') {
-        console.log('✅ Successfully extracted items using transcript parsing');
+        console.log('✅ Successfully extracted items using AI parsing');
       }
       
       const contactInfo = extractContactInfo(fallbackTranscript);
@@ -871,51 +740,12 @@ async function extractOrderFromSummary(summary, fallbackTranscript) {
         ...totals
       };
     }
-    
-    // Try AI parsing if regex parsing fails
-    if (LOG_MODE === 'full') {
-      console.log('🎯 Falling back to AI-enhanced transcript parsing');
-    }
-    const aiItems = await extractItemsFromTranscriptWithAI(fallbackTranscript);
-    
-    if (aiItems && aiItems.length > 0) {
-      if (LOG_MODE === 'full') {
-        console.log('✅ Successfully extracted items using AI');
-      }
-      
-      const contactInfo = extractContactInfo(fallbackTranscript);
-      const totals = calculateTotals(aiItems);
-      
-      let pickupTime = 'ASAP';
-      let orderType = 'pickup';
-      
-      if (typeof summary === 'string') {
-        const summaryText = summary.toLowerCase();
-        const timeMatch = summaryText.match(/(\d+)\s+(minute|min|hour|hr)/i);
-        if (timeMatch) {
-          pickupTime = timeMatch[1] + ' ' + timeMatch[2] + (timeMatch[1] !== '1' ? 's' : '');
-        }
-        
-        if (/delivery|deliver/.test(summaryText)) {
-          orderType = 'delivery';
-        }
-      }
-      
-      return {
-        customer_name: contactInfo.name || 'N/A',
-        phone: contactInfo.phone || 'N/A',
-        items: aiItems,
-        pickup_time: pickupTime,
-        order_type: orderType,
-        address: contactInfo.address || 'N/A',
-        notes: '',
-        payment_link: '',
-        ...totals
-      };
-    }
   }
   
   // Final fallback - try to parse from summary if no transcript success
+  if (LOG_MODE === 'full') {
+    console.log('⚠️ No valid transcript items found, returning null');
+  }
   return null;
 }
 
@@ -1122,7 +952,7 @@ app.post('/get-total', async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
-    service: 'Roti\'s Indian Restaurant Price Calculator v1.4',
+    service: 'Roti\'s Indian Restaurant Price Calculator v1.5',
     timestamp: new Date().toISOString()
   });
 });
@@ -1156,6 +986,7 @@ app.post('/post-call', async (req, res) => {
   if (LOG_MODE === 'full') {
     console.log('📞 Call ID:', callId);
     console.log('📊 Call Status:', status);
+    console.log('📝 Raw transcript:', JSON.stringify(transcript, null, 2));
   }
   
   // Check if we've already processed this call
@@ -1171,11 +1002,20 @@ app.post('/post-call', async (req, res) => {
     addProcessedCall(callId);
   }
 
-  if (!transcript || transcript.length === 0) {
+  if (!transcript || !Array.isArray(transcript) || transcript.length === 0) {
     if (LOG_MODE === 'full') {
       console.log('⚠️ No transcript found in webhook payload');
     }
     return res.status(200).send('✅ Webhook received - No transcript to process');
+  }
+
+  // Validate transcript entries
+  const validTranscript = transcript.filter(turn => 
+    turn && typeof turn === 'object' && turn.role && typeof turn.message === 'string'
+  );
+  if (validTranscript.length < transcript.length) {
+    console.log('⚠️ Found invalid transcript entries:', 
+      transcript.filter(turn => !turn || typeof turn !== 'object' || !turn.role || typeof turn.message !== 'string'));
   }
 
   // In summary mode, only show order confirmation exchanges
@@ -1186,9 +1026,10 @@ app.post('/post-call', async (req, res) => {
     
     // Find final order confirmation
     let confirmationIndex = -1;
-    for (let i = transcript.length - 1; i >= 0; i--) {
-      if (transcript[i].role === 'agent' && 
-          /your final order is|got it.*?your final order is|here's your order|to confirm/i.test(transcript[i].message)) {
+    for (let i = validTranscript.length - 1; i >= 0; i--) {
+      if (validTranscript[i].role === 'agent' && 
+          typeof validTranscript[i].message === 'string' && 
+          /your final order is|got it.*?your final order is|here's your order|to confirm/i.test(validTranscript[i].message)) {
         confirmationIndex = i;
         break;
       }
@@ -1196,21 +1037,19 @@ app.post('/post-call', async (req, res) => {
     
     if (confirmationIndex !== -1) {
       console.log('\n📝 Final Order Confirmation:');
-      console.log('Agent:', transcript[confirmationIndex].message);
+      console.log('Agent:', validTranscript[confirmationIndex].message);
       
       // Look for customer confirmation
-      if (confirmationIndex + 1 < transcript.length) {
-        console.log('Customer:', transcript[confirmationIndex + 1].message);
+      if (confirmationIndex + 1 < validTranscript.length) {
+        console.log('Customer:', validTranscript[confirmationIndex + 1].message);
       }
     }
   } else {
     // Full logging mode
-    console.log('\n📝 Processing transcript with', transcript.length, 'turns');
+    console.log('\n📝 Processing transcript with', validTranscript.length, 'valid turns');
     console.log('-'.repeat(60));
-    transcript.forEach(turn => {
-      if (turn.role && turn.message) {
-        console.log((turn.role === 'agent' ? 'Agent' : 'Customer') + ': "' + turn.message + '"');
-      }
+    validTranscript.forEach(turn => {
+      console.log((turn.role === 'agent' ? 'Agent' : 'Customer') + ': "' + turn.message + '"');
     });
   }
 
@@ -1232,7 +1071,7 @@ app.post('/post-call', async (req, res) => {
     console.log('\n🔄 Starting order extraction...');
   }
   
-  const detectedOrder = await extractOrderFromSummary(summaryToUse, transcript);
+  const detectedOrder = await extractOrderFromSummary(summaryToUse, validTranscript);
 
   if (detectedOrder) {
     if (LOG_MODE === 'summary') {
@@ -1274,9 +1113,9 @@ app.post('/post-call', async (req, res) => {
 
 app.listen(port, () => {
   console.log('============================================');
-  console.log('✅ Roti\'s Indian Restaurant Server v1.4 - Started Successfully');
+  console.log('✅ Roti\'s Indian Restaurant Server v1.5 - Started Successfully');
   console.log(`📍 Listening on port ${port}`);
-  console.log('🔄 Features: AI order parsing, default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels');
+  console.log('🔄 Features: AI order parsing from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction');
   console.log('📝 Toast integration ready (awaiting API credentials)');
   console.log('============================================');
 });
