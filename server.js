@@ -4,9 +4,9 @@ const fetch = require('node-fetch');
 require('dotenv').config();
 
 // ============================================
-// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.5.6
+// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.5.3
 // Last Updated: July 2025
-// Features: Using /get-total items with AI-parsed spice levels/notes from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, fixed order detection to require /get-total and confirmed order, AI-based contact info extraction from last confirmed "your name is" and "your phone number is"
+// Features: Using /get-total items with AI-parsed spice levels/notes from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction, fixed async issue in extractItemsFromTranscript, fixed template literal in Authorization header
 // ============================================
 
 const app = express();
@@ -286,120 +286,6 @@ const QUANTITY_WORDS = {
   six: 6, seven: 7, eight: 8, nine: 9, ten: 10 
 };
 
-// AI-powered contact info summarization function
-async function summarizeContactInfoWithAI(transcript) {
-  if (!OPENAI_API_KEY) {
-    console.log('⚠️ OpenAI API key not configured, cannot parse contact info with AI');
-    return { name: 'N/A', phone: 'N/A' };
-  }
-
-  try {
-    // Convert transcript to a string with role prefixes
-    const transcriptText = transcript
-      .filter(turn => turn && turn.role && typeof turn.message === 'string')
-      .map(turn => `${turn.role === 'agent' ? 'Agent' : 'Customer'}: ${turn.message}`)
-      .join('\n');
-
-    const prompt = `You are a contact information parser for a restaurant order system. Your task is to extract the customer's name and phone number from the LAST occurrence of an agent confirmation message in the transcript that matches the pattern: "To confirm, your name is [name] and your phone number is [number]. Is that correct?" followed by a customer response confirming with words like "yes", "correct", "right", "confirm", "confirmed", "that's right", or "yeah" (case-insensitive).
-
-CRITICAL PARSING RULES:
-1. ONLY extract from the LAST instance of the confirmation pattern to avoid earlier incorrect attempts.
-2. The agent message must explicitly include both "your name is" and "your phone number is".
-3. The customer must confirm in the immediate next turn with a confirmation word/phrase.
-4. Normalize the phone number to XXX-XXX-XXXX format (e.g., "eight one three eight six one three three three seven" or "8138613337" → "813-861-3337").
-5. If the name or phone number is unclear or missing, set it to "N/A".
-6. If no confirmed match is found, return { "name": "N/A", "phone": "N/A" }.
-7. Do NOT extract from customer-provided info (e.g., "My name is Yusuf") unless part of the confirmed agent pattern.
-
-Transcript to parse:
-${transcriptText}
-
-Return JSON object:
-{
-  "name": "string",
-  "phone": "string"
-}
-
-Examples:
-- Input: 
-  Agent: To confirm, your name is John and your phone number is 123-456-7890. Is that correct?
-  Customer: No
-  Agent: Sorry, to confirm, your name is Yusuf and your phone number is 8138613337. Is that correct?
-  Customer: Yes
-  Output: { "name": "Yusuf", "phone": "813-861-3337" }
-
-- Input:
-  Agent: To confirm, your name is Jane and your phone number is eight one three five five five one two three four. Is that correct?
-  Customer: Correct
-  Output: { "name": "Jane", "phone": "813-555-1234" }
-
-- Input:
-  Agent: What's your name?
-  Customer: Yusuf
-  Output: { "name": "N/A", "phone": "N/A" }
-
-- Input:
-  Agent: To confirm, your name is Yusuf and your phone number is 813-861-3337. Is that correct?
-  Customer: No
-  Output: { "name": "N/A", "phone": "N/A" }`;
-
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'gpt-3.5-turbo',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.1,
-        max_tokens: 500
-      })
-    });
-
-    if (!response.ok) {
-      console.error('OpenAI API error:', response.status, response.statusText);
-      return { name: 'N/A', phone: 'N/A' };
-    }
-
-    const data = await response.json();
-    
-    if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-      console.error('Invalid OpenAI response:', data);
-      return { name: 'N/A', phone: 'N/A' };
-    }
-
-    const aiResponse = data.choices[0].message.content;
-    if (LOG_MODE === 'full') {
-      console.log('🤖 Raw AI Contact Info Response:', aiResponse);
-    }
-    
-    let parsedContact;
-    try {
-      parsedContact = JSON.parse(aiResponse);
-    } catch (error) {
-      console.error('❌ Failed to parse AI contact info response:', error);
-      return { name: 'N/A', phone: 'N/A' };
-    }
-    
-    if (LOG_MODE === 'full') {
-      console.log('🤖 AI Parsed Contact Info:', JSON.stringify(parsedContact, null, 2));
-    }
-
-    // Validate phone number format
-    const phoneRegex = /^\d{3}-\d{3}-\d{4}$/;
-    if (parsedContact.phone !== 'N/A' && !phoneRegex.test(parsedContact.phone)) {
-      console.log('⚠️ Invalid phone number format from AI, setting to N/A:', parsedContact.phone);
-      parsedContact.phone = 'N/A';
-    }
-
-    return parsedContact;
-  } catch (error) {
-    console.error('❌ AI contact info summarization error:', error);
-    return { name: 'N/A', phone: 'N/A' };
-  }
-}
-
 // AI-powered order summarization function
 async function summarizeOrderWithAI(orderText) {
   if (!OPENAI_API_KEY) {
@@ -652,7 +538,7 @@ function calculateTotals(items) {
   };
 }
 
-async function extractContactInfo(transcript) {
+function extractContactInfo(transcript) {
   let phone = 'N/A';
   let name = 'N/A';
   let address = 'N/A';
@@ -663,20 +549,60 @@ async function extractContactInfo(transcript) {
     return { phone, name, address };
   }
   
-  // Use AI to parse contact info
-  const aiContactInfo = await summarizeContactInfoWithAI(transcript);
+  // Find the last AI confirmation message
+  let confirmationIndex = -1;
+  let confirmationMessage = null;
   
-  if (aiContactInfo.name !== 'N/A') {
-    name = aiContactInfo.name;
-    console.log('📋 AI Extracted name:', name);
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    const turn = transcript[i];
+    if (turn && turn.role === 'agent' && 
+        typeof turn.message === 'string' && 
+        /to confirm, your name is\s+(.+?)\s+and your phone number is\s+(.+?)\s*\.\s*is that correct\?/i.test(turn.message)) {
+      confirmationIndex = i;
+      confirmationMessage = turn.message;
+      break;
+    }
   }
   
-  if (aiContactInfo.phone !== 'N/A') {
-    phone = aiContactInfo.phone;
-    console.log('📞 AI Extracted phone:', phone);
+  // Verify customer confirmation and extract details
+  if (confirmationIndex !== -1 && confirmationIndex + 1 < transcript.length) {
+    const customerResponse = transcript[confirmationIndex + 1];
+    if (customerResponse && customerResponse.role === 'user' && 
+        typeof customerResponse.message === 'string' && 
+        /yes|correct|right|confirm|confirmed|that.?s right|yeah/i.test(customerResponse.message)) {
+      if (process.env.LOG_MODE === 'full') {
+        console.log('✅ Found last AI confirmation:', confirmationMessage);
+        console.log('✅ Customer confirmed:', customerResponse.message);
+      }
+      
+      // Extract name
+      const nameMatch = confirmationMessage.match(/your name is\s+([a-zA-Z\s]+?)\s+and your phone number is/i);
+      if (nameMatch && nameMatch[1]) {
+        name = nameMatch[1].trim();
+        if (process.env.LOG_MODE === 'full') {
+          console.log('📋 Extracted name:', name);
+        }
+      }
+      
+      // Extract phone number
+      const phoneMatch = confirmationMessage.match(/your phone number is\s+(\d{3}[-.\s]?\d{3}[-.\s]?\d{4}|\(\d{3}\)\s*\d{3}[-.\s]?\d{4}|\d{10})/i);
+      if (phoneMatch && phoneMatch[1]) {
+        let rawPhone = phoneMatch[1].replace(/[^0-9]/g, '');
+        if (rawPhone.length === 10) {
+          phone = `${rawPhone.slice(0, 3)}-${rawPhone.slice(3, 6)}-${rawPhone.slice(6)}`;
+          if (process.env.LOG_MODE === 'full') {
+            console.log('📞 Extracted phone:', phone);
+          }
+        }
+      }
+    } else if (process.env.LOG_MODE === 'full') {
+      console.log('⚠️ Customer confirmation not found or invalid for:', confirmationMessage);
+    }
+  } else if (process.env.LOG_MODE === 'full') {
+    console.log('⚠️ No AI confirmation message found matching "to confirm, your name is ... and your phone number is ..."');
   }
   
-  // Extract address from user turns
+  // Extract address from user turns (unchanged from previous versions)
   for (const turn of transcript) {
     if (turn && turn.role === 'user' && typeof turn.message === 'string') {
       const addressMatch = turn.message.match(/(?:address is|live at|deliver to)\s+(.+?)(?:\.|,|$)/i);
@@ -727,22 +653,6 @@ async function extractItemsFromTranscript(transcript, callId) {
     return items;
   }
   
-  // Check if we have a recent /get-total order for this call
-  const TIME_THRESHOLD = 60 * 60 * 1000; // 1 hour in milliseconds
-  if (!latestCompleteOrder || latestCompleteOrder.callId !== callId || 
-      !latestOrderTimestamp || (Date.now() - latestOrderTimestamp >= TIME_THRESHOLD)) {
-    console.log('⚠️ No valid /get-total order found for call:', callId || 'none');
-    return items;
-  }
-  
-  console.log('✅ Using items from /get-total for call:', callId);
-  if (LOG_MODE === 'full') {
-    console.log('📦 /get-total items:', JSON.stringify(latestCompleteOrder.items, null, 2));
-  }
-  
-  // Find the FINAL order confirmation
-  let orderText = '';
-  let confirmationIndex = -1;
   const fullConversation = transcript
     .filter(turn => turn && turn.message && typeof turn.message === 'string')
     .map(t => t.message)
@@ -753,6 +663,9 @@ async function extractItemsFromTranscript(transcript, callId) {
     console.log('🔍 Full conversation:', fullConversation);
   }
   
+  // Find the FINAL order confirmation
+  let orderText = '';
+  let confirmationIndex = -1;
   const patterns = [
     /your final order is[:\s]*(.+?)(?:\.\s*is that correct|\?\s*is that correct|is that correct)/i,
     /got it[!.]?\s*your final order is[:\s]*(.+?)(?:\.\s*is that correct|\?\s*is that correct|is that correct)/i,
@@ -790,15 +703,9 @@ async function extractItemsFromTranscript(transcript, callId) {
   }
   
   if (!orderText) {
-    console.log('⚠️ No order confirmation found in transcript for call:', callId);
-    // Use /get-total items with default mild spice
-    return latestCompleteOrder.items.map(item => ({
-      name: item.name,
-      quantity: item.quantity,
-      price: item.price,
-      total: item.total,
-      modifications: requiresSpiceLevel(item.name) ? ['spice: mild'] : []
-    }));
+    if (LOG_MODE === 'full') {
+      console.log('🔄 No order confirmation found');
+    }
   }
   
   // Verify customer confirmation
@@ -815,35 +722,77 @@ async function extractItemsFromTranscript(transcript, callId) {
     }
   }
   
-  if (!isCustomerConfirmed) {
-    console.log('⚠️ Customer confirmation not found for order text, using /get-total items with default mild spice');
-    return latestCompleteOrder.items.map(item => ({
-      name: item.name,
-      quantity: item.quantity,
-      price: item.price,
-      total: item.total,
-      modifications: requiresSpiceLevel(item.name) ? ['spice: mild'] : []
-    }));
+  if (!isCustomerConfirmed && orderText) {
+    if (LOG_MODE === 'full') {
+      console.log('⚠️ Customer confirmation not found, proceeding with last order confirmation');
+    }
   }
   
-  // Parse spice levels and notes from transcript
+  // Check if we have a recent /get-total order for this call
+  const TIME_THRESHOLD = 60 * 60 * 1000; // 1 hour in milliseconds
+  if (latestCompleteOrder && latestCompleteOrder.callId === callId && 
+      latestOrderTimestamp && (Date.now() - latestOrderTimestamp < TIME_THRESHOLD)) {
+    if (LOG_MODE === 'full') {
+      console.log('✅ Using items from /get-total for call:', callId);
+      console.log('📦 /get-total items:', JSON.stringify(latestCompleteOrder.items, null, 2));
+    }
+    
+    if (!orderText) {
+      // If no order confirmation in transcript, use /get-total items as-is
+      return latestCompleteOrder.items.map(item => ({
+        name: item.name,
+        quantity: item.quantity,
+        price: item.price,
+        total: item.total,
+        modifications: requiresSpiceLevel(item.name) ? ['spice: mild'] : []
+      }));
+    }
+    
+    // Parse spice levels and notes from transcript
+    const aiParsedOrder = await summarizeOrderWithAI(orderText);
+    
+    if (aiParsedOrder && aiParsedOrder.length > 0) {
+      if (LOG_MODE === 'full') {
+        console.log('🤖 Merging /get-total items with AI-parsed spice levels/notes');
+      }
+      return mergeGetTotalWithAIParsed(latestCompleteOrder.items, aiParsedOrder);
+    } else {
+      if (LOG_MODE === 'full') {
+        console.log('⚠️ AI parsing failed, using /get-total items with default mild spice for biryanis/entrees');
+      }
+      // Fallback: Use /get-total items with default spice levels
+      return latestCompleteOrder.items.map(item => ({
+        name: item.name,
+        quantity: item.quantity,
+        price: item.price,
+        total: item.total,
+        modifications: requiresSpiceLevel(item.name) ? ['spice: mild'] : []
+      }));
+    }
+  }
+  
+  // Fallback to full AI parsing if no valid /get-total order
+  if (LOG_MODE === 'full') {
+    console.log('⚠️ No valid /get-total order found, falling back to AI parsing');
+  }
+  
+  if (!orderText) {
+    return items;
+  }
+  
   const aiParsedOrder = await summarizeOrderWithAI(orderText);
   
   if (aiParsedOrder && aiParsedOrder.length > 0) {
     if (LOG_MODE === 'full') {
-      console.log('🤖 Merging /get-total items with AI-parsed spice levels/notes');
+      console.log('🤖 Using AI-parsed order');
     }
-    return mergeGetTotalWithAIParsed(latestCompleteOrder.items, aiParsedOrder);
-  } else {
-    console.log('⚠️ AI parsing failed, using /get-total items with default mild spice');
-    return latestCompleteOrder.items.map(item => ({
-      name: item.name,
-      quantity: item.quantity,
-      price: item.price,
-      total: item.total,
-      modifications: requiresSpiceLevel(item.name) ? ['spice: mild'] : []
-    }));
+    return convertAIParsedToItems(aiParsedOrder);
   }
+  
+  if (LOG_MODE === 'full') {
+    console.log('⚠️ AI parsing failed, returning empty items');
+  }
+  return items;
 }
 
 // Enhanced extraction with AI
@@ -868,7 +817,7 @@ async function extractOrderFromSummary(summary, fallbackTranscript, callId) {
         console.log('✅ Successfully extracted items');
       }
       
-      const contactInfo = await extractContactInfo(fallbackTranscript);
+      const contactInfo = extractContactInfo(fallbackTranscript);
       const totals = calculateTotals(transcriptItems);
       
       let pickupTime = 'ASAP';
@@ -900,8 +849,10 @@ async function extractOrderFromSummary(summary, fallbackTranscript, callId) {
     }
   }
   
-  // No valid transcript items or no /get-total
-  console.log('⚠️ No valid order detected: No /get-total or confirmed order found');
+  // Final fallback - try to parse from summary if no transcript success
+  if (LOG_MODE === 'full') {
+    console.log('⚠️ No valid transcript items found, returning null');
+  }
   return null;
 }
 
@@ -1110,7 +1061,7 @@ app.post('/get-total', async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
-    service: 'Roti\'s Indian Restaurant Price Calculator v1.5.6',
+    service: 'Roti\'s Indian Restaurant Price Calculator v1.5.3',
     timestamp: new Date().toISOString()
   });
 });
@@ -1271,9 +1222,9 @@ app.post('/post-call', async (req, res) => {
 
 app.listen(port, () => {
   console.log('============================================');
-  console.log('✅ Roti\'s Indian Restaurant Server v1.5.6 - Started Successfully');
+  console.log('✅ Roti\'s Indian Restaurant Server v1.5.3 - Started Successfully');
   console.log(`📍 Listening on port ${port}`);
-  console.log('🔄 Features: Using /get-total items with AI-parsed spice levels/notes from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, fixed order detection to require /get-total and confirmed order, AI-based contact info extraction from last confirmed "your name is" and "your phone number is"');
+  console.log('🔄 Features: Using /get-total items with AI-parsed spice levels/notes from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction, fixed async issue in extractItemsFromTranscript, fixed template literal in Authorization header');
   console.log('📝 Toast integration ready (awaiting API credentials)');
   console.log('============================================');
 });
