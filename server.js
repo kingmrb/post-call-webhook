@@ -4,9 +4,9 @@ const fetch = require('node-fetch');
 require('dotenv').config();
 
 // ============================================
-// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.5.3
+// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.6.0
 // Last Updated: July 2025
-// Features: Using /get-total items with AI-parsed spice levels/notes from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction, fixed async issue in extractItemsFromTranscript, fixed template literal in Authorization header
+// Features: Toast POS Integration, Using /get-total items with AI-parsed spice levels/notes from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction, fixed async issue in extractItemsFromTranscript, fixed template literal in Authorization header
 // ============================================
 
 const app = express();
@@ -14,6 +14,17 @@ const port = process.env.PORT || 3000;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const LOG_MODE = process.env.LOG_MODE || 'summary'; // 'full' or 'summary'
+
+// Toast API Configuration
+const TOAST_API_HOSTNAME = process.env.TOAST_API_HOSTNAME;
+const TOAST_CLIENT_ID = process.env.TOAST_CLIENT_ID;
+const TOAST_CLIENT_SECRET = process.env.TOAST_CLIENT_SECRET;
+const TOAST_RESTAURANT_GUID = process.env.TOAST_RESTAURANT_GUID;
+const TOAST_LOCATION_GUID = process.env.TOAST_LOCATION_GUID;
+
+// Toast authentication token management
+let toastAccessToken = null;
+let toastTokenExpiry = null;
 
 // Increased limits for large webhook payloads
 app.use(bodyParser.json({ limit: '50mb' }));
@@ -285,6 +296,478 @@ const QUANTITY_WORDS = {
   one: 1, two: 2, three: 3, four: 4, five: 5, 
   six: 6, seven: 7, eight: 8, nine: 9, ten: 10 
 };
+
+// Toast API Functions
+async function getToastToken() {
+  // Check if we have a valid token
+  if (toastAccessToken && toastTokenExpiry && new Date() < toastTokenExpiry) {
+    return toastAccessToken;
+  }
+
+  try {
+    const response = await fetch(`${TOAST_API_HOSTNAME}/authentication/v1/authentication/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        clientId: TOAST_CLIENT_ID,
+        clientSecret: TOAST_CLIENT_SECRET,
+        userAccessType: 'TOAST_MACHINE_CLIENT'
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Toast authentication failed: ${response.status} - ${error}`);
+    }
+
+    const data = await response.json();
+    toastAccessToken = data.token.accessToken;
+    // Set token expiry (Toast tokens typically expire in 1 hour)
+    toastTokenExpiry = new Date(Date.now() + 55 * 60 * 1000); // 55 minutes to be safe
+    
+    console.log('✅ Toast authentication successful');
+    return toastAccessToken;
+  } catch (error) {
+    console.error('❌ Toast authentication error:', error);
+    throw error;
+  }
+}
+
+// Get menu item GUID from Toast
+async function getToastMenuItemGuid(itemName) {
+  try {
+    const token = await getToastToken();
+    
+    // Try to find exact match first
+    const menuResponse = await fetch(`${TOAST_API_HOSTNAME}/config/v2/menus`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Toast-Restaurant-External-ID': TOAST_RESTAURANT_GUID
+      }
+    });
+
+    if (!menuResponse.ok) {
+      console.error('Failed to fetch menu for item lookup');
+      return null;
+    }
+
+    const menus = await menuResponse.json();
+    
+    // Search for the item
+    for (const menu of menus) {
+      if (menu.groups) {
+        for (const group of menu.groups) {
+          if (group.items) {
+            for (const item of group.items) {
+              if (item.name.toLowerCase() === itemName.toLowerCase()) {
+                return item.guid;
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    console.log(`⚠️ Menu item not found in Toast: ${itemName}`);
+    return null;
+  } catch (error) {
+    console.error('Error looking up menu item:', error);
+    return null;
+  }
+}
+
+// Function to create order in Toast
+async function createToastOrder(orderData) {
+  try {
+    if (!TOAST_API_HOSTNAME || !TOAST_CLIENT_ID || !TOAST_CLIENT_SECRET || !TOAST_RESTAURANT_GUID) {
+      throw new Error('Toast API credentials not configured');
+    }
+
+    const token = await getToastToken();
+    
+    // Get dining option GUIDs
+    const diningResponse = await fetch(`${TOAST_API_HOSTNAME}/config/v2/diningOptions`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Toast-Restaurant-External-ID': TOAST_RESTAURANT_GUID
+      }
+    });
+    
+    let diningOptions = {};
+    if (diningResponse.ok) {
+      const options = await diningResponse.json();
+      options.forEach(opt => {
+        diningOptions[opt.name.toLowerCase()] = opt.guid;
+      });
+    }
+    
+    // Find appropriate dining option
+    let diningOptionGuid = null;
+    if (orderData.order_type === 'delivery') {
+      diningOptionGuid = diningOptions['delivery'] || diningOptions['deliver'];
+    } else {
+      diningOptionGuid = diningOptions['takeout'] || diningOptions['pickup'] || diningOptions['take out'];
+    }
+    
+    if (!diningOptionGuid) {
+      throw new Error(`Dining option not found for: ${orderData.order_type}`);
+    }
+    
+    // Build selections array
+    const selections = [];
+    for (const item of orderData.items) {
+      const itemGuid = await getToastMenuItemGuid(item.name);
+      
+      if (!itemGuid) {
+        console.error(`Skipping item - not found in Toast: ${item.name}`);
+        continue;
+      }
+      
+      const selection = {
+        item: {
+          guid: itemGuid
+        },
+        quantity: item.quantity,
+        modifiers: []
+      };
+      
+      // Add spice level modifiers if present
+      if (item.modifications) {
+        for (const mod of item.modifications) {
+          if (mod.startsWith('spice:')) {
+            // For now, we'll add as premodifier without GUID
+            // In production, you'd look up the actual modifier GUID
+            selection.preModifier = mod.replace('spice: ', '').toUpperCase() + ' SPICE';
+          }
+        }
+      }
+      
+      selections.push(selection);
+    }
+    
+    if (selections.length === 0) {
+      throw new Error('No valid menu items found for Toast order');
+    }
+    
+    // Build Toast order
+    const toastOrder = {
+      diningOption: {
+        guid: diningOptionGuid
+      },
+      checks: [{
+        customer: {
+          firstName: orderData.customer_name.split(' ')[0] || 'Guest',
+          lastName: orderData.customer_name.split(' ').slice(1).join(' ') || '',
+          phone: orderData.phone.replace(/-/g, ''),
+          email: null
+        },
+        selections: selections,
+        appliedDiscounts: [],
+        taxExempt: false
+      }]
+    };
+    
+    // Add promised date if not ASAP
+    if (orderData.pickup_time !== 'ASAP') {
+      const promisedDate = calculatePromisedDate(orderData.pickup_time);
+      toastOrder.promisedDate = promisedDate;
+    }
+    
+    // If delivery, add delivery info
+    if (orderData.order_type === 'delivery' && orderData.address !== 'N/A') {
+      toastOrder.deliveryInfo = {
+        address1: orderData.address,
+        deliveryInstructions: orderData.notes || ''
+      };
+    }
+    
+    console.log('📤 Sending order to Toast:', JSON.stringify(toastOrder, null, 2));
+    
+    // Create the order
+    const response = await fetch(`${TOAST_API_HOSTNAME}/orders/v2/orders`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Toast-Restaurant-External-ID': TOAST_RESTAURANT_GUID,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(toastOrder)
+    });
+    
+    const responseText = await response.text();
+    
+    if (!response.ok) {
+      throw new Error(`Failed to create Toast order: ${response.status} - ${responseText}`);
+    }
+    
+    const createdOrder = JSON.parse(responseText);
+    console.log('✅ Toast order created successfully:', createdOrder.guid);
+    
+    return {
+      success: true,
+      orderId: createdOrder.guid,
+      orderNumber: createdOrder.displayNumber || createdOrder.checks?.[0]?.displayNumber,
+      estimatedReadyTime: createdOrder.estimatedFulfillmentDate || createdOrder.promisedDate
+    };
+    
+  } catch (error) {
+    console.error('❌ Error creating Toast order:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+// Helper function to calculate promised date
+function calculatePromisedDate(pickupTime) {
+  const now = new Date();
+  const match = pickupTime.match(/(\d+)\s+(minute|min|hour|hr)/i);
+  
+  if (match) {
+    const amount = parseInt(match[1]);
+    const unit = match[2].toLowerCase();
+    
+    if (unit.startsWith('min')) {
+      now.setMinutes(now.getMinutes() + amount);
+    } else if (unit.startsWith('hour') || unit.startsWith('hr')) {
+      now.setHours(now.getHours() + amount);
+    }
+  }
+  
+  return now.toISOString();
+}
+
+// Add the test endpoints temporarily
+app.get('/toast-info', async (req, res) => {
+  try {
+    console.log('🔍 Fetching Toast restaurant info...');
+    
+    // Get authentication token
+    const authResponse = await fetch(`${TOAST_API_HOSTNAME}/authentication/v1/authentication/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        clientId: TOAST_CLIENT_ID,
+        clientSecret: TOAST_CLIENT_SECRET,
+        userAccessType: 'TOAST_MACHINE_CLIENT'
+      })
+    });
+
+    if (!authResponse.ok) {
+      const error = await authResponse.text();
+      return res.status(500).json({ 
+        error: 'Authentication failed', 
+        details: error,
+        status: authResponse.status 
+      });
+    }
+
+    const authData = await authResponse.json();
+    const token = authData.token.accessToken;
+    console.log('✅ Successfully authenticated with Toast');
+    
+    // Get restaurants
+    const restaurantResponse = await fetch(`${TOAST_API_HOSTNAME}/config/v2/restaurants`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Toast-Restaurant-External-ID': '*'
+      }
+    });
+
+    if (!restaurantResponse.ok) {
+      const error = await restaurantResponse.text();
+      return res.status(500).json({ 
+        error: 'Failed to get restaurants', 
+        details: error 
+      });
+    }
+
+    const restaurants = await restaurantResponse.json();
+    
+    // Get locations for each restaurant
+    const restaurantInfo = [];
+    
+    for (const restaurant of restaurants) {
+      const locResponse = await fetch(`${TOAST_API_HOSTNAME}/config/v2/locations`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Toast-Restaurant-External-ID': restaurant.guid
+        }
+      });
+      
+      let locations = [];
+      if (locResponse.ok) {
+        locations = await locResponse.json();
+      }
+      
+      restaurantInfo.push({
+        restaurant: {
+          name: restaurant.name,
+          guid: restaurant.guid
+        },
+        locations: locations.map(loc => ({
+          name: loc.name,
+          guid: loc.guid,
+          address: loc.address
+        }))
+      });
+    }
+    
+    // Return formatted information
+    res.json({
+      success: true,
+      message: 'Add these to your Railway environment variables:',
+      data: restaurantInfo,
+      instructions: restaurantInfo.length > 0 ? {
+        TOAST_RESTAURANT_GUID: restaurantInfo[0].restaurant.guid,
+        TOAST_LOCATION_GUID: restaurantInfo[0].locations[0]?.guid || 'No locations found'
+      } : 'No restaurants found'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error:', error);
+    res.status(500).json({ 
+      error: 'Internal server error', 
+      message: error.message 
+    });
+  }
+});
+
+// Add menu endpoint to get GUIDs
+app.get('/toast-menu', async (req, res) => {
+  try {
+    const TOAST_RESTAURANT_GUID = process.env.TOAST_RESTAURANT_GUID;
+    
+    if (!TOAST_RESTAURANT_GUID) {
+      return res.status(400).json({ 
+        error: 'TOAST_RESTAURANT_GUID not set in environment variables' 
+      });
+    }
+    
+    console.log('🔍 Fetching Toast menu info...');
+    
+    // Get authentication token
+    const authResponse = await fetch(`${TOAST_API_HOSTNAME}/authentication/v1/authentication/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        clientId: TOAST_CLIENT_ID,
+        clientSecret: TOAST_CLIENT_SECRET,
+        userAccessType: 'TOAST_MACHINE_CLIENT'
+      })
+    });
+
+    if (!authResponse.ok) {
+      const error = await authResponse.text();
+      return res.status(500).json({ 
+        error: 'Authentication failed', 
+        details: error 
+      });
+    }
+
+    const authData = await authResponse.json();
+    const token = authData.token.accessToken;
+    
+    // Get menus
+    const menuResponse = await fetch(`${TOAST_API_HOSTNAME}/config/v2/menus`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Toast-Restaurant-External-ID': TOAST_RESTAURANT_GUID
+      }
+    });
+
+    if (!menuResponse.ok) {
+      const error = await menuResponse.text();
+      return res.status(500).json({ 
+        error: 'Failed to get menu', 
+        details: error 
+      });
+    }
+
+    const menus = await menuResponse.json();
+    
+    // Create mappings
+    const menuItemGuids = {};
+    const modifierGuids = {};
+    
+    // Process menus
+    menus.forEach(menu => {
+      if (menu.groups) {
+        menu.groups.forEach(group => {
+          if (group.items) {
+            group.items.forEach(item => {
+              // Store by lowercase name for easy matching
+              menuItemGuids[item.name.toLowerCase()] = {
+                guid: item.guid,
+                name: item.name,
+                price: item.price
+              };
+              
+              // Process modifiers
+              if (item.modifierGroups) {
+                item.modifierGroups.forEach(modGroup => {
+                  if (modGroup.modifiers) {
+                    modGroup.modifiers.forEach(modifier => {
+                      modifierGuids[modifier.name.toLowerCase()] = {
+                        guid: modifier.guid,
+                        name: modifier.name
+                      };
+                    });
+                  }
+                });
+              }
+            });
+          }
+        });
+      }
+    });
+    
+    // Get dining options
+    const diningResponse = await fetch(`${TOAST_API_HOSTNAME}/config/v2/diningOptions`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Toast-Restaurant-External-ID': TOAST_RESTAURANT_GUID
+      }
+    });
+    
+    let diningOptionGuids = {};
+    if (diningResponse.ok) {
+      const diningOptions = await diningResponse.json();
+      diningOptions.forEach(option => {
+        diningOptionGuids[option.name.toLowerCase()] = {
+          guid: option.guid,
+          name: option.name
+        };
+      });
+    }
+    
+    res.json({
+      success: true,
+      menuItems: menuItemGuids,
+      modifiers: modifierGuids,
+      diningOptions: diningOptionGuids,
+      summary: {
+        totalMenuItems: Object.keys(menuItemGuids).length,
+        totalModifiers: Object.keys(modifierGuids).length,
+        totalDiningOptions: Object.keys(diningOptionGuids).length
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error:', error);
+    res.status(500).json({ 
+      error: 'Internal server error', 
+      message: error.message 
+    });
+  }
+});
 
 // AI-powered order summarization function
 async function summarizeOrderWithAI(orderText) {
@@ -1061,7 +1544,7 @@ app.post('/get-total', async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
-    service: 'Roti\'s Indian Restaurant Price Calculator v1.5.3',
+    service: 'Roti\'s Indian Restaurant Price Calculator v1.6.0',
     timestamp: new Date().toISOString()
   });
 });
@@ -1213,6 +1696,26 @@ app.post('/post-call', async (req, res) => {
       console.log(JSON.stringify(toastPayload, null, 2));
       console.log('-'.repeat(60));
     }
+    
+    // Create Toast order
+    if (TOAST_API_HOSTNAME && TOAST_CLIENT_ID && TOAST_CLIENT_SECRET && TOAST_RESTAURANT_GUID) {
+      console.log('\n🍞 Creating Toast order...');
+      const toastResult = await createToastOrder(detectedOrder);
+      
+      if (toastResult.success) {
+        console.log('✅ Toast order created successfully!');
+        console.log('📋 Order ID:', toastResult.orderId);
+        console.log('📋 Order Number:', toastResult.orderNumber);
+        console.log('⏰ Estimated Ready Time:', toastResult.estimatedReadyTime);
+        
+        // You could also send a notification or update a database here
+      } else {
+        console.log('❌ Failed to create Toast order:', toastResult.error);
+        // You might want to send an alert or save to a failed orders queue
+      }
+    } else {
+      console.log('⚠️ Toast API credentials not fully configured');
+    }
   } else {
     console.log('❌ No order detected.');
   }
@@ -1222,10 +1725,10 @@ app.post('/post-call', async (req, res) => {
 
 app.listen(port, () => {
   console.log('============================================');
-  console.log('✅ Roti\'s Indian Restaurant Server v1.5.3 - Started Successfully');
+  console.log('✅ Roti\'s Indian Restaurant Server v1.6.0 - Started Successfully');
   console.log(`📍 Listening on port ${port}`);
-  console.log('🔄 Features: Using /get-total items with AI-parsed spice levels/notes from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction, fixed async issue in extractItemsFromTranscript, fixed template literal in Authorization header');
-  console.log('📝 Toast integration ready (awaiting API credentials)');
+  console.log('🔄 Features: Toast POS Integration, Using /get-total items with AI-parsed spice levels/notes from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction');
+  console.log('🍞 Toast integration: ' + (TOAST_API_HOSTNAME && TOAST_CLIENT_ID && TOAST_CLIENT_SECRET ? 'ACTIVE' : 'PENDING CONFIGURATION'));
   console.log('============================================');
 });
 
