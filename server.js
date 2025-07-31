@@ -1561,9 +1561,9 @@ function calculateTotals(items) {
   const total = subtotal + tax;
   
   return {
-    subtotal: ' + subtotal.toFixed(2),
-    tax: ' + tax.toFixed(2),
-    total: ' + total.toFixed(2)
+    subtotal: '$' + subtotal.toFixed(2),
+    tax: '$' + tax.toFixed(2),
+    total: '$' + total.toFixed(2)
   };
 }
 
