@@ -4,9 +4,9 @@ const fetch = require('node-fetch');
 require('dotenv').config();
 
 // ============================================
-// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.6.0
+// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.6.1
 // Last Updated: July 2025
-// Features: Toast POS Integration, Using /get-total items with AI-parsed spice levels/notes from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction, fixed async issue in extractItemsFromTranscript, fixed template literal in Authorization header
+// Features: Toast POS Integration, Using /get-total items with AI-parsed spice levels/notes from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction, fixed async issue in extractItemsFromTranscript, fixed template literal in Authorization header, FIXED MENU API INTEGRATION
 // ============================================
 
 const app = express();
@@ -335,13 +335,13 @@ async function getToastToken() {
   }
 }
 
-// Get menu item GUID from Toast
+// Get menu item GUID from Toast - FIXED VERSION
 async function getToastMenuItemGuid(itemName) {
   try {
     const token = await getToastToken();
     
-    // Try to find exact match first
-    const menuResponse = await fetch(`${TOAST_API_HOSTNAME}/config/v2/menus`, {
+    // FIXED: Use Menus API V2 instead of Config API
+    const menuResponse = await fetch(`${TOAST_API_HOSTNAME}/menus/v2/menus`, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Toast-Restaurant-External-ID': TOAST_RESTAURANT_GUID
@@ -355,12 +355,12 @@ async function getToastMenuItemGuid(itemName) {
 
     const menus = await menuResponse.json();
     
-    // Search for the item
+    // FIXED: Search in the resolved menu structure
     for (const menu of menus) {
-      if (menu.groups) {
-        for (const group of menu.groups) {
-          if (group.items) {
-            for (const item of group.items) {
+      if (menu.menuGroups) {
+        for (const group of menu.menuGroups) {
+          if (group.menuItems) {
+            for (const item of group.menuItems) {
               if (item.name.toLowerCase() === itemName.toLowerCase()) {
                 return item.guid;
               }
@@ -638,7 +638,7 @@ app.get('/toast-info', async (req, res) => {
   }
 });
 
-// Add menu endpoint to get GUIDs
+// Add menu endpoint to get GUIDs - FIXED VERSION
 app.get('/toast-menu', async (req, res) => {
   try {
     const TOAST_RESTAURANT_GUID = process.env.TOAST_RESTAURANT_GUID;
@@ -675,8 +675,8 @@ app.get('/toast-menu', async (req, res) => {
     const authData = await authResponse.json();
     const token = authData.token.accessToken;
     
-    // Get menus
-    const menuResponse = await fetch(`${TOAST_API_HOSTNAME}/config/v2/menus`, {
+    // FIXED: Use Menus API V2 instead of Config API
+    const menuResponse = await fetch(`${TOAST_API_HOSTNAME}/menus/v2/menus`, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Toast-Restaurant-External-ID': TOAST_RESTAURANT_GUID
@@ -697,17 +697,17 @@ app.get('/toast-menu', async (req, res) => {
     const menuItemGuids = {};
     const modifierGuids = {};
     
-    // Process menus
+    // FIXED: Process resolved menu structure from Menus API V2
     menus.forEach(menu => {
-      if (menu.groups) {
-        menu.groups.forEach(group => {
-          if (group.items) {
-            group.items.forEach(item => {
+      if (menu.menuGroups) {
+        menu.menuGroups.forEach(group => {
+          if (group.menuItems) {
+            group.menuItems.forEach(item => {
               // Store by lowercase name for easy matching
               menuItemGuids[item.name.toLowerCase()] = {
                 guid: item.guid,
                 name: item.name,
-                price: item.price
+                price: item.price || 0
               };
               
               // Process modifiers
@@ -721,6 +721,16 @@ app.get('/toast-menu', async (req, res) => {
                       };
                     });
                   }
+                });
+              }
+              
+              // Also check for premodifiers
+              if (item.preModifiers) {
+                item.preModifiers.forEach(preMod => {
+                  modifierGuids[preMod.name.toLowerCase()] = {
+                    guid: preMod.guid,
+                    name: preMod.name
+                  };
                 });
               }
             });
@@ -1544,7 +1554,7 @@ app.post('/get-total', async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
-    service: 'Roti\'s Indian Restaurant Price Calculator v1.6.0',
+    service: 'Roti\'s Indian Restaurant Price Calculator v1.6.1',
     timestamp: new Date().toISOString()
   });
 });
@@ -1725,9 +1735,9 @@ app.post('/post-call', async (req, res) => {
 
 app.listen(port, () => {
   console.log('============================================');
-  console.log('✅ Roti\'s Indian Restaurant Server v1.6.0 - Started Successfully');
+  console.log('✅ Roti\'s Indian Restaurant Server v1.6.1 - Started Successfully');
   console.log(`📍 Listening on port ${port}`);
-  console.log('🔄 Features: Toast POS Integration, Using /get-total items with AI-parsed spice levels/notes from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction');
+  console.log('🔄 Features: Toast POS Integration, Using /get-total items with AI-parsed spice levels/notes from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction, FIXED MENU API INTEGRATION');
   console.log('🍞 Toast integration: ' + (TOAST_API_HOSTNAME && TOAST_CLIENT_ID && TOAST_CLIENT_SECRET ? 'ACTIVE' : 'PENDING CONFIGURATION'));
   console.log('============================================');
 });
