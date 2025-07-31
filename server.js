@@ -394,6 +394,209 @@ async function getToastMenuItemGuid(itemName) {
   }
 }
 
+// AI-powered menu matching cache
+let aiMenuMappingCache = new Map();
+let toastMenuCache = null;
+let menuCacheTimestamp = null;
+
+// Load and cache Toast menu items
+async function loadToastMenuCache() {
+  try {
+    // Cache for 1 hour
+    if (toastMenuCache && menuCacheTimestamp && (Date.now() - menuCacheTimestamp < 3600000)) {
+      return toastMenuCache;
+    }
+
+    console.log('🔄 Loading Toast menu into cache...');
+    const token = await getToastToken();
+    
+    const menuResponse = await fetch(`${TOAST_API_HOSTNAME}/menus/v2/menus`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Toast-Restaurant-External-ID': TOAST_RESTAURANT_GUID
+      }
+    });
+
+    if (!menuResponse.ok) {
+      console.error('Failed to load Toast menu cache');
+      return null;
+    }
+
+    const menus = await menuResponse.json();
+    const menuArray = menus.menus || menus;
+    
+    const menuItems = [];
+    menuArray.forEach(menu => {
+      if (menu.menuGroups) {
+        menu.menuGroups.forEach(group => {
+          if (group.menuItems) {
+            group.menuItems.forEach(item => {
+              menuItems.push({
+                name: item.name,
+                guid: item.guid,
+                lowerName: item.name.toLowerCase()
+              });
+            });
+          }
+        });
+      }
+    });
+
+    toastMenuCache = menuItems;
+    menuCacheTimestamp = Date.now();
+    console.log(`✅ Cached ${menuItems.length} Toast menu items`);
+    return menuItems;
+  } catch (error) {
+    console.error('Error loading Toast menu cache:', error);
+    return null;
+  }
+}
+
+// AI-powered menu item matching
+async function findBestToastMenuMatch(localItemName) {
+  try {
+    if (!OPENAI_API_KEY) {
+      console.log('⚠️ OpenAI API key not configured for menu matching');
+      return null;
+    }
+
+    const toastItems = await loadToastMenuCache();
+    if (!toastItems || toastItems.length === 0) {
+      console.log('⚠️ Toast menu cache empty, cannot do AI matching');
+      return null;
+    }
+
+    console.log(`🤖 Using AI to match: "${localItemName}"`);
+
+    const menuList = toastItems.map(item => item.name).join('\n');
+    
+    const prompt = `You are a restaurant menu matching expert. Find the best match for "${localItemName}" from this Toast POS menu:
+
+${menuList}
+
+Return ONLY the exact menu item name that best matches "${localItemName}". If no good match exists, return "NOT_FOUND".
+
+Matching rules:
+- Prioritize exact matches first
+- Handle semantic similarity (goat biryani → Goat Dum Biryani)
+- Handle plural/singular variations (samosas → Veg Samosas)
+- Consider common menu variations (mix grill → Tandoori Mix Grill)
+- Match by cuisine type and cooking method
+- Return the Toast menu name exactly as shown above`;
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'gpt-3.5-turbo',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+        max_tokens: 100
+      })
+    });
+
+    if (!response.ok) {
+      console.error('OpenAI API error for menu matching:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    const aiMatch = data.choices[0].message.content.trim();
+    
+    if (aiMatch === 'NOT_FOUND') {
+      console.log(`🤖 AI found no match for: ${localItemName}`);
+      return null;
+    }
+
+    // Verify the AI match exists in our cache
+    const foundItem = toastItems.find(item => 
+      item.name.toLowerCase() === aiMatch.toLowerCase()
+    );
+
+    if (foundItem) {
+      console.log(`🤖 AI matched "${localItemName}" → "${aiMatch}"`);
+      return foundItem.name;
+    } else {
+      console.log(`🤖 AI returned invalid match: ${aiMatch}`);
+      return null;
+    }
+
+  } catch (error) {
+    console.error('Error in AI menu matching:', error);
+    return null;
+  }
+}
+
+// Enhanced menu item lookup with AI fallback
+async function getToastMenuItemGuidWithAI(itemName) {
+  try {
+    console.log(`🔍 Smart lookup for: ${itemName}`);
+
+    // 1. Check manual mappings first (fastest)
+    const mappedName = ITEM_MAPPINGS[itemName.toLowerCase()];
+    if (mappedName) {
+      console.log(`📋 Found manual mapping: ${itemName} → ${mappedName}`);
+      return await getToastMenuItemGuidDirect(mappedName);
+    }
+
+    // 2. Check AI cache (fast)
+    if (aiMenuMappingCache.has(itemName.toLowerCase())) {
+      const cachedMatch = aiMenuMappingCache.get(itemName.toLowerCase());
+      console.log(`💾 Found AI cache: ${itemName} → ${cachedMatch}`);
+      return await getToastMenuItemGuidDirect(cachedMatch);
+    }
+
+    // 3. Try direct lookup first
+    const directGuid = await getToastMenuItemGuidDirect(itemName);
+    if (directGuid) {
+      return directGuid;
+    }
+
+    // 4. Use AI to find match + cache result (slow but smart)
+    const aiMatch = await findBestToastMenuMatch(itemName);
+    if (aiMatch) {
+      // Cache the successful AI match
+      aiMenuMappingCache.set(itemName.toLowerCase(), aiMatch);
+      console.log(`💾 Cached AI match: ${itemName} → ${aiMatch}`);
+      return await getToastMenuItemGuidDirect(aiMatch);
+    }
+
+    console.log(`❌ No match found for: ${itemName}`);
+    return null;
+
+  } catch (error) {
+    console.error('Error in smart menu lookup:', error);
+    return null;
+  }
+}
+
+// Direct GUID lookup without AI (used by the smart lookup)
+async function getToastMenuItemGuidDirect(itemName) {
+  try {
+    const toastItems = await loadToastMenuCache();
+    if (!toastItems) {
+      return null;
+    }
+
+    const foundItem = toastItems.find(item => 
+      item.lowerName === itemName.toLowerCase()
+    );
+
+    if (foundItem) {
+      console.log(`✅ Found Toast item: ${foundItem.name} (${foundItem.guid})`);
+      return foundItem.guid;
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error in direct GUID lookup:', error);
+    return null;
+  }
+}
+
 // Function to create order in Toast
 async function createToastOrder(orderData) {
   try {
@@ -434,7 +637,7 @@ async function createToastOrder(orderData) {
     // Build selections array
     const selections = [];
     for (const item of orderData.items) {
-      const itemGuid = await getToastMenuItemGuid(item.name);
+      const itemGuid = await getToastMenuItemGuidWithAI(item.name);
       
       if (!itemGuid) {
         console.error(`Skipping item - not found in Toast: ${item.name}`);
