@@ -355,8 +355,9 @@ async function getToastMenuItemGuid(itemName) {
 
     const menus = await menuResponse.json();
     
-    // FIXED: Search in the resolved menu structure
-    for (const menu of menus) {
+    // FIXED: Search in the resolved menu structure  
+    const menuArray = menus.menus || menus;  // Handle both object and array responses
+    for (const menu of menuArray) {
       if (menu.menuGroups) {
         for (const group of menu.menuGroups) {
           if (group.menuItems) {
@@ -698,7 +699,8 @@ app.get('/toast-menu', async (req, res) => {
     const modifierGuids = {};
     
     // FIXED: Process resolved menu structure from Menus API V2
-    menus.forEach(menu => {
+    const menuArray = menus.menus || menus;  // Handle both object and array responses
+    menuArray.forEach(menu => {
       if (menu.menuGroups) {
         menu.menuGroups.forEach(group => {
           if (group.menuItems) {
