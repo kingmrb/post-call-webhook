@@ -335,9 +335,12 @@ async function getToastToken() {
   }
 }
 
-// Get menu item GUID from Toast - FIXED VERSION
+// Get menu item GUID from Toast - FIXED VERSION WITH RATE LIMITING
 async function getToastMenuItemGuid(itemName) {
   try {
+    // Add delay to prevent rate limiting (500ms between calls)
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
     const token = await getToastToken();
     
     // FIXED: Use Menus API V2 instead of Config API
