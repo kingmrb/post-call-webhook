@@ -2235,6 +2235,10 @@ process.on('SIGTERM', () => {
   process.exit(0);
 });
 
+console.log('Menu keys containing paneer:', 
+  Object.keys(MENU_ITEMS).filter(key => key.includes('paneer'))
+);
+
 process.on('SIGINT', () => {
   console.log('SIGINT received, shutting down gracefully...');
   process.exit(0);
