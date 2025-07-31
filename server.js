@@ -349,20 +349,23 @@ async function getToastMenuItemGuid(itemName) {
     });
 
     if (!menuResponse.ok) {
-      console.error('Failed to fetch menu for item lookup');
+      console.error('Failed to fetch menu for item lookup:', menuResponse.status);
       return null;
     }
 
     const menus = await menuResponse.json();
     
-    // FIXED: Search in the resolved menu structure  
-    const menuArray = menus.menus || menus;  // Handle both object and array responses
+    // FIXED: Handle the correct response structure
+    const menuArray = menus.menus || menus;
+    
+    // FIXED: Search in the resolved menu structure
     for (const menu of menuArray) {
       if (menu.menuGroups) {
         for (const group of menu.menuGroups) {
           if (group.menuItems) {
             for (const item of group.menuItems) {
               if (item.name.toLowerCase() === itemName.toLowerCase()) {
+                console.log(`✅ Found Toast menu item: ${item.name} (GUID: ${item.guid})`);
                 return item.guid;
               }
             }
