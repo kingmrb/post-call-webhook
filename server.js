@@ -335,11 +335,13 @@ async function getToastToken() {
   }
 }
 
-// Get menu item GUID from Toast - FIXED VERSION WITH RATE LIMITING
+// Get menu item GUID from Toast - IMPROVED VERSION WITH 2-SECOND DELAYS
 async function getToastMenuItemGuid(itemName) {
   try {
-    // Add delay to prevent rate limiting (500ms between calls)
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // Increased delay to prevent rate limiting (2 seconds between calls)
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    console.log(`🔍 Looking up Toast menu item: ${itemName}`);
     
     const token = await getToastToken();
     
@@ -352,7 +354,14 @@ async function getToastMenuItemGuid(itemName) {
     });
 
     if (!menuResponse.ok) {
-      console.error('Failed to fetch menu for item lookup:', menuResponse.status);
+      const errorText = await menuResponse.text();
+      console.error(`Failed to fetch menu for item lookup: ${menuResponse.status} - ${errorText}`);
+      
+      // If rate limited, wait longer and don't retry
+      if (menuResponse.status === 429) {
+        console.log('⚠️ Rate limited by Toast API - skipping remaining lookups');
+        return null;
+      }
       return null;
     }
 
@@ -380,7 +389,7 @@ async function getToastMenuItemGuid(itemName) {
     console.log(`⚠️ Menu item not found in Toast: ${itemName}`);
     return null;
   } catch (error) {
-    console.error('Error looking up menu item:', error);
+    console.error('Error looking up menu item:', error.message);
     return null;
   }
 }
