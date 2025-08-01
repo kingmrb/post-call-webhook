@@ -4,33 +4,16 @@ const fetch = require('node-fetch');
 require('dotenv').config();
 
 // ============================================
-// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.6.2
+// ROTI'S INDIAN RESTAURANT SERVER - VERSION 1.5.3
 // Last Updated: July 2025
-// Features: Toast POS Integration, Using /get-total items with AI-parsed spice levels/notes from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction, fixed async issue in extractItemsFromTranscript, fixed template literal in Authorization header, FIXED MENU API INTEGRATION, IMPROVED ORGANIZED LOGGING SYSTEM
+// Features: Using /get-total items with AI-parsed spice levels/notes from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction, fixed async issue in extractItemsFromTranscript, fixed template literal in Authorization header
 // ============================================
 
 const app = express();
 const port = process.env.PORT || 3000;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-
-// Enhanced logging configuration
-const LOG_CONFIG = {
-  mode: process.env.LOG_MODE || 'summary', // 'full', 'summary', 'minimal'
-  showMenuLookups: process.env.SHOW_MENU_LOOKUPS === 'true',
-  showToastIntegration: process.env.SHOW_TOAST_INTEGRATION === 'true'
-};
-
-// Toast API Configuration
-const TOAST_API_HOSTNAME = process.env.TOAST_API_HOSTNAME;
-const TOAST_CLIENT_ID = process.env.TOAST_CLIENT_ID;
-const TOAST_CLIENT_SECRET = process.env.TOAST_CLIENT_SECRET;
-const TOAST_RESTAURANT_GUID = process.env.TOAST_RESTAURANT_GUID;
-const TOAST_LOCATION_GUID = process.env.TOAST_LOCATION_GUID;
-
-// Toast authentication token management
-let toastAccessToken = null;
-let toastTokenExpiry = null;
+const LOG_MODE = process.env.LOG_MODE || 'summary'; // 'full' or 'summary'
 
 // Increased limits for large webhook payloads
 app.use(bodyParser.json({ limit: '50mb' }));
@@ -295,1171 +278,13 @@ const ITEM_MAPPINGS = {
   // Desserts
   'gulab jamoon': 'gulab jamun',
   'ras malai': 'rasmalai',
-  'house dessert': 'house spl desert',
-
-  // ==============================================
-  // NEW TOAST-SPECIFIC MAPPINGS
-  // ==============================================
-  
-  // UPDATED: Your existing mappings now point to Toast exact names
-  
-  // Soups - Updated to Toast exact names
-  'veg hot & sour soup': 'Veg Hot & Soup soup',  // Toast has typo
-  'veg hot and sour soup': 'Veg Hot & Soup soup',
-  'vegetable hot & sour soup': 'Veg Hot & Soup soup',
-  'vegetable hot and sour soup': 'Veg Hot & Soup soup',
-  'chicken hot & sour soup': 'Chicken Hot & sour soup',
-  'chicken hot and sour soup': 'Chicken Hot & sour soup',
-  'tomato soup': 'Tomato Soup',
-  
-  // Appetizers - Updated to Toast exact names
-  'veg samosas': 'Veg Samosa',
-  'vegetable samosas': 'Veg Samosa',
-  'samosas': 'Veg Samosa',
-  'samosa chaat': 'Samosa Chat',
-  'onion pakora': 'Onion Pakora',
-  'mixed veg pakora': 'Mixed veg Pakora',
-  'mixed vegetable pakora': 'Mixed veg Pakora',
-  'punugulu': 'Punugulu',
-  'cut mirchi': 'Cut Mirchi',
-  'spl masala mirchi bajji': 'Spl Masala Mirchi Baji',
-  'special masala mirchi bajji': 'Spl Masala Mirchi Baji',
-  'gobi manchurian': 'Gobi Manjurian',
-  'gobi 65': 'Gobi 65',
-  'baby corn manchurian': 'Baby Corn Manchurian',
-  'baby corn pepper fry': 'Baby Corn Pepper fry',
-  
-  // Paneer items - Map to Toast "Panner" spelling
-  'paneer 65': 'Panner 65',
-  'chicken 65': 'Chicken 65',
-  'chicken majestic': 'Chicken Majestic',
-  'chicken manchurian': 'Chicken Manjurian',
-  'spl chicken pakora': 'Spl Chicken Pakaro',
-  'special chicken pakora': 'Spl Chicken Pakaro',
-  'cashew chicken fry': 'Cashew Chicken fry',
-  'lamb pepper fry': 'Lamb Pepper Fry',
-  'shrimp fry': 'Shrimp fry',
-  
-  // Entrees - Updated to Toast exact names
-  'dal tadka': 'Dal Tadka',
-  'chana masala': 'Channa Masala',  // Toast has double "n"
-  'chole bhatura': 'Chole Bhatura',
-  'mix veg curry': 'Mixed Veg Curry',
-  'aloo gobi masala': 'Aloo Gobi Masala',
-  'spinach paneer': 'Spinach (saag) Panner',  // Toast format
-  'stuffed brinjal curry': 'Stuffed Brinjal Curry',
-  'gutti vankaya curry': 'Stuffed Brinjal Curry',
-  'paneer tikka masala': 'Panner Tikka Masala',
-  'paneer butter masala': 'Panner Butter Masala',
-  'kadai paneer': 'Kadai Panner',
-  'methi malai mutter': 'Methi Malai Mutter',
-  'egg masala': 'Egg Masala',
-  'chicken tikka masala': 'Chicken Tikka Masala',
-  'kadai chicken': 'Kadai Chicken',
-  'butter chicken': 'Butter Chicken',
-  'chicken curry': 'Chicken Curry',
-  'chicken saag': 'Chicken Saag- Spinach',
-  'chicken spinach': 'Chicken Saag- Spinach',
-  'spl chicken vindaloo': 'Spl Chicken Vindaloo',
-  'special chicken vindaloo': 'Spl Chicken Vindaloo',
-  'chicken vindaloo': 'Spl Chicken Vindaloo',
-  'lamb curry': 'Lamb Curry',
-  'spl lamb vindaloo': 'Spl Lamb Vindaloo',
-  'special lamb vindaloo': 'Spl Lamb Vindaloo',
-  'lamb vindaloo': 'Spl Lamb Vindaloo',
-  'lamb saag': 'Lamb Saag(spinach)',
-  'lamb spinach': 'Lamb Saag(spinach)',
-  'goat curry': 'Goat Curry',
-  'shrimp curry': 'Shrimp Curry',
-  
-  // Tandoori - Updated to Toast exact names
-  'paneer tikka kebab': 'Paneer Tikka Kebab',
-  'chicken tikka kebab': 'Chicken Tikka Kebab',
-  'chicken malai kebab': 'Chicken Malai Kebab',
-  'tandoori chicken half': 'Tandoori Chicken Half',
-  'tandoori chicken full': 'Tandoori Chicken Full',
-  'tandoori mix grill': 'Tandoori Mixed Grill',
-  
-  // Biryanis - Updated to Toast exact names
-  'veg dum biryani': 'Veg Dum Biryani',
-  'vegetable dum biryani': 'Veg Dum Biryani',
-  'veg keema biryani': 'Veg Keema Biryani',
-  'vegetable keema biryani': 'Veg Keema Biryani',
-  'house spl paneer biryani': 'HOUSE SPL. Panner Biryani',
-  'house special paneer biryani': 'HOUSE SPL. Panner Biryani',
-  'paneer biryani': 'HOUSE SPL. Panner Biryani',
-  'spl egg biryani': 'Spl. EGG Biryani',
-  'special egg biryani': 'Spl. EGG Biryani',
-  'egg biryani': 'Spl. EGG Biryani',
-  'chicken dum biryani': 'Chicken Dum Biryani',
-  'chicken 65 biryani': 'Chicken 65 Biryani',
-  'goat dum biryani': 'Goat Dum Biryani',
-  'lamb biryani': 'Lamb Biryani',
-  
-  // South Indian - Updated to Toast exact names
-  'idli': 'Idli 2 Pcs',
-  'vada': 'Vada - 2 Pcs',
-  'plain dosa': 'Plain Dosa',
-  'podi dosa': 'Podi Dosa',
-  'onion dosa': 'Onion Dosa',
-  'masala dosa': 'Masala Dosa',
-  'mysore masala dosa': 'Mysore Masala Dosa',
-  'rava dosa': 'Rava Dosa',
-  'rava onion dosa': 'Rava Onion Dosa',
-  'rava masala dosa': 'Rava Masala dosa',
-  
-  // Desserts - Updated to Toast exact names
-  'gulab jamun': 'Gulab Jamun',
-  'rasmalai': 'Rasamalai',
-  'house spl desert': 'House SPL Desert',
-  'house special dessert': 'House SPL Desert',
-  
-  // Beverages - Updated to Toast exact names
-  'coke': 'Coke',
-  'sprite': 'Sprite',
-  'diet coke': 'Diet Coke',
-  'thums up': 'Thums up / Limca / Fanta',
-  'limca': 'Thums up / Limca / Fanta',
-  'fanta': 'Thums up / Limca / Fanta',
-  'mango lassi': 'Mango Lassi',
-  
-  // Breads - Updated to Toast exact names
-  'tandoori roti': 'Tandoori Roti',
-  'butter tandoori roti': 'Butter Tandoori Roti',
-  'sharbati roti': 'Sharbati ROti',  // Toast caps issue
-  'chilli onion roti': 'Chilli Onion Roti',
-  'garlic roti': 'Garlic Roti',
-  'chilli garlic roti': 'Chilli Garlic Roti',
-  'plain naan': 'Plain Naan',
-  'naan': 'Plain Naan',
-  'butter naan': 'Butter Naan',
-  'garlic naan': 'Garlic Naan',
-  'chilli garlic naan': 'Chilli Garlic Naan',
-  
-  // Sides - Updated to Toast exact names
-  'white rice': 'White Rcie',  // Toast typo
-  'rice': 'White Rcie',
-  'raitha': 'Raitha 4 oz',
-  'raita': 'Raitha 4 oz',
-  'sambar': 'Sambar'
+  'house dessert': 'house spl desert'
 };
 
 const QUANTITY_WORDS = { 
   one: 1, two: 2, three: 3, four: 4, five: 5, 
   six: 6, seven: 7, eight: 8, nine: 9, ten: 10 
 };
-
-// Centralized logging system
-class OrderLogger {
-  constructor() {
-    this.orderSummary = {
-      callId: null,
-      customerInfo: {},
-      items: [],
-      totals: {},
-      toastStatus: null,
-      processingTime: null,
-      errors: []
-    };
-    this.startTime = Date.now();
-  }
-
-  // Initialize order processing
-  startOrderProcessing(callId) {
-    this.orderSummary.callId = callId;
-    this.startTime = Date.now();
-    
-    if (LOG_CONFIG.mode !== 'minimal') {
-      console.log('\n' + '═'.repeat(80));
-      console.log(`🔄 PROCESSING ORDER: ${callId || 'unknown'}`);
-      console.log('═'.repeat(80));
-    }
-  }
-
-  // Log customer information
-  logCustomerInfo(customerInfo) {
-    this.orderSummary.customerInfo = customerInfo;
-    
-    if (LOG_CONFIG.mode !== 'minimal') {
-      console.log('\n👤 CUSTOMER INFORMATION:');
-      console.log(`   Name: ${customerInfo.name}`);
-      console.log(`   Phone: ${customerInfo.phone}`);
-      console.log(`   Address: ${customerInfo.address}`);
-    }
-  }
-
-  // Log order items in a clean table format
-  logOrderItems(items) {
-    this.orderSummary.items = items;
-    
-    if (LOG_CONFIG.mode !== 'minimal') {
-      console.log('\n📦 ORDER ITEMS:');
-      console.log('─'.repeat(80));
-      console.log('QTY | ITEM NAME                           | PRICE  | MODS/SPICE     | TOTAL');
-      console.log('─'.repeat(80));
-      
-      items.forEach(item => {
-        const qty = item.quantity.toString().padEnd(3);
-        const name = item.name.substring(0, 35).padEnd(35);
-        const price = `$${item.price.toFixed(2)}`.padEnd(6);
-        const mods = (item.modifications || []).join(', ').substring(0, 14).padEnd(14);
-        const total = `$${item.total.toFixed(2)}`;
-        
-        console.log(`${qty} | ${name} | ${price} | ${mods} | ${total}`);
-      });
-      console.log('─'.repeat(80));
-    }
-  }
-
-  // Log pricing totals
-  logTotals(totals) {
-    this.orderSummary.totals = totals;
-    
-    if (LOG_CONFIG.mode !== 'minimal') {
-      console.log('\n💰 ORDER TOTALS:');
-      console.log(`   Items: ${this.orderSummary.items.length}`);
-      console.log(`   Subtotal: ${totals.subtotal}`);
-      console.log(`   Tax (6.5%): ${totals.tax}`);
-      console.log(`   🎯 TOTAL: ${totals.total}`);
-    }
-  }
-
-  // Log Toast integration status
-  logToastIntegration(status) {
-    this.orderSummary.toastStatus = status;
-    
-    if (LOG_CONFIG.showToastIntegration && LOG_CONFIG.mode !== 'minimal') {
-      console.log('\n🍞 TOAST INTEGRATION:');
-      if (status.success) {
-        console.log(`   ✅ Order Created Successfully`);
-        console.log(`   📋 Order ID: ${status.orderId}`);
-        console.log(`   📋 Order Number: ${status.orderNumber}`);
-        console.log(`   ⏰ Ready Time: ${status.estimatedReadyTime}`);
-        if (status.skippedItems && status.skippedItems.length > 0) {
-          console.log(`   ⚠️  Skipped Items: ${status.skippedItems.join(', ')}`);
-        }
-      } else {
-        console.log(`   ❌ Failed: ${status.error}`);
-      }
-    }
-  }
-
-  // Log item not found specifically
-  logItemNotFound(itemName, suggestion = null) {
-    this.orderSummary.errors.push({
-      error: `Item not found in menu`,
-      context: 'menu_lookup',
-      itemName,
-      suggestion,
-      timestamp: new Date().toISOString()
-    });
-
-    if (LOG_CONFIG.mode !== 'minimal') {
-      console.log(`\n🔍 ITEM NOT FOUND: "${itemName}"`);
-      if (suggestion) {
-        console.log(`   💡 Suggestion: ${suggestion}`);
-      }
-    }
-  }
-
-  // Log Toast integration errors
-  logToastError(error, orderData) {
-    this.orderSummary.errors.push({
-      error: error.message || error,
-      context: 'toast_integration',
-      orderItems: orderData?.items?.length || 0,
-      timestamp: new Date().toISOString()
-    });
-
-    if (LOG_CONFIG.mode !== 'minimal') {
-      console.log(`\n🍞 TOAST ERROR: ${error.message || error}`);
-    }
-  }
-
-  // Log any errors encountered
-  logError(error, context, itemName = null) {
-    this.orderSummary.errors.push({ 
-      error: error.message || error, 
-      context, 
-      itemName,
-      timestamp: new Date().toISOString()
-    });
-    
-    if (LOG_CONFIG.mode !== 'minimal') {
-      const item = itemName ? ` (${itemName})` : '';
-      console.log(`\n❌ ERROR in ${context}${item}: ${error.message || error}`);
-    }
-  }
-
-  // Final summary report
-  finishOrderProcessing() {
-    this.orderSummary.processingTime = Date.now() - this.startTime;
-    
-    console.log('\n' + '═'.repeat(80));
-    console.log('📊 ORDER PROCESSING COMPLETE');
-    console.log('═'.repeat(80));
-    
-    // Always show summary regardless of log mode
-    console.log(`🔢 Call ID: ${this.orderSummary.callId || 'unknown'}`);
-    console.log(`👤 Customer: ${this.orderSummary.customerInfo.name} (${this.orderSummary.customerInfo.phone})`);
-    console.log(`📦 Items: ${this.orderSummary.items.length} items`);
-    console.log(`💰 Total: ${this.orderSummary.totals.total || 'N/A'}`);
-    console.log(`🍞 Toast: ${this.orderSummary.toastStatus?.success ? '✅ Success' : '❌ Failed/Pending'}`);
-    console.log(`⏱️  Processing Time: ${this.orderSummary.processingTime}ms`);
-    
-    // Enhanced error reporting
-    if (this.orderSummary.errors.length > 0) {
-      console.log(`\n⚠️  ERRORS ENCOUNTERED (${this.orderSummary.errors.length}):`);
-      console.log('─'.repeat(80));
-      
-      // Group errors by type
-      const errorGroups = this.orderSummary.errors.reduce((groups, error) => {
-        const type = error.context;
-        if (!groups[type]) groups[type] = [];
-        groups[type].push(error);
-        return groups;
-      }, {});
-
-      Object.entries(errorGroups).forEach(([type, errors]) => {
-        console.log(`\n🔴 ${type.toUpperCase().replace('_', ' ')} ERRORS (${errors.length}):`);
-        errors.forEach((error, index) => {
-          const prefix = `   ${index + 1}.`;
-          if (error.itemName) {
-            console.log(`${prefix} Item: "${error.itemName}" - ${error.error}`);
-            if (error.suggestion) {
-              console.log(`      💡 Suggestion: ${error.suggestion}`);
-            }
-          } else {
-            console.log(`${prefix} ${error.error}`);
-          }
-        });
-      });
-      
-      console.log('─'.repeat(80));
-      
-      // Show impact summary
-      const menuErrors = errorGroups.menu_lookup?.length || 0;
-      const toastErrors = errorGroups.toast_integration?.length || 0;
-      const parsingErrors = errorGroups.order_parsing?.length || 0;
-      
-      console.log('\n📊 ERROR IMPACT:');
-      if (menuErrors > 0) {
-        console.log(`   🔍 ${menuErrors} items not found in menu (order may be incomplete)`);
-      }
-      if (toastErrors > 0) {
-        console.log(`   🍞 Toast integration failed (manual order entry required)`);
-      }
-      if (parsingErrors > 0) {
-        console.log(`   📝 Order parsing issues (review transcript manually)`);
-      }
-    } else {
-      console.log('\n✅ NO ERRORS - Perfect order processing!');
-    }
-    
-    console.log('═'.repeat(80));
-  }
-
-  // Get summary for external systems
-  getSummary() {
-    return this.orderSummary;
-  }
-}
-
-// Helper function to suggest similar items
-function suggestSimilarItem(itemName) {
-  const menuItems = Object.keys(MENU_ITEMS);
-  const itemLower = itemName.toLowerCase();
-  
-  // Find items with similar words
-  for (const menuItem of menuItems) {
-    const menuLower = menuItem.toLowerCase();
-    const itemWords = itemLower.split(' ');
-    const menuWords = menuLower.split(' ');
-    
-    // Check if they share significant words
-    const commonWords = itemWords.filter(word => 
-      word.length > 3 && menuWords.some(mWord => mWord.includes(word) || word.includes(mWord))
-    );
-    
-    if (commonWords.length >= 1) {
-      return menuItem;
-    }
-  }
-  
-  return null;
-}
-
-// Toast API Functions
-async function getToastToken() {
-  // Check if we have a valid token
-  if (toastAccessToken && toastTokenExpiry && new Date() < toastTokenExpiry) {
-    return toastAccessToken;
-  }
-
-  try {
-    const response = await fetch(`${TOAST_API_HOSTNAME}/authentication/v1/authentication/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        clientId: TOAST_CLIENT_ID,
-        clientSecret: TOAST_CLIENT_SECRET,
-        userAccessType: 'TOAST_MACHINE_CLIENT'
-      })
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Toast authentication failed: ${response.status} - ${error}`);
-    }
-
-    const data = await response.json();
-    toastAccessToken = data.token.accessToken;
-    // Set token expiry (Toast tokens typically expire in 1 hour)
-    toastTokenExpiry = new Date(Date.now() + 55 * 60 * 1000); // 55 minutes to be safe
-    
-    console.log('✅ Toast authentication successful');
-    return toastAccessToken;
-  } catch (error) {
-    console.error('❌ Toast authentication error:', error);
-    throw error;
-  }
-}
-
-// Get menu item GUID from Toast - IMPROVED VERSION WITH 2-SECOND DELAYS
-async function getToastMenuItemGuid(itemName) {
-  try {
-    // Increased delay to prevent rate limiting (2 seconds between calls)
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    if (LOG_CONFIG.showMenuLookups || LOG_CONFIG.mode === 'full') {
-      console.log(`🔍 Looking up Toast menu item: ${itemName}`);
-    }
-    
-    const token = await getToastToken();
-    
-    // FIXED: Use Menus API V2 instead of Config API
-    const menuResponse = await fetch(`${TOAST_API_HOSTNAME}/menus/v2/menus`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Toast-Restaurant-External-ID': TOAST_RESTAURANT_GUID
-      }
-    });
-
-    if (!menuResponse.ok) {
-      const errorText = await menuResponse.text();
-      console.error(`Failed to fetch menu for item lookup: ${menuResponse.status} - ${errorText}`);
-      
-      // If rate limited, wait longer and don't retry
-      if (menuResponse.status === 429) {
-        console.log('⚠️ Rate limited by Toast API - skipping remaining lookups');
-        return null;
-      }
-      return null;
-    }
-
-    const menus = await menuResponse.json();
-    
-    // FIXED: Handle the correct response structure
-    const menuArray = menus.menus || menus;
-    
-    // FIXED: Search in the resolved menu structure
-    for (const menu of menuArray) {
-      if (menu.menuGroups) {
-        for (const group of menu.menuGroups) {
-          if (group.menuItems) {
-            for (const item of group.menuItems) {
-              if (item.name.toLowerCase() === itemName.toLowerCase()) {
-                if (LOG_CONFIG.showMenuLookups || LOG_CONFIG.mode === 'full') {
-                  console.log(`✅ Found Toast menu item: ${item.name} (GUID: ${item.guid})`);
-                }
-                return item.guid;
-              }
-            }
-          }
-        }
-      }
-    }
-    
-    if (LOG_CONFIG.showMenuLookups || LOG_CONFIG.mode === 'full') {
-      console.log(`⚠️ Menu item not found in Toast: ${itemName}`);
-    }
-    return null;
-  } catch (error) {
-    console.error('Error looking up menu item:', error.message);
-    return null;
-  }
-}
-
-// AI-powered menu matching cache
-let aiMenuMappingCache = new Map();
-let toastMenuCache = null;
-let menuCacheTimestamp = null;
-
-// Load and cache Toast menu items
-async function loadToastMenuCache() {
-  try {
-    // Cache for 1 hour
-    if (toastMenuCache && menuCacheTimestamp && (Date.now() - menuCacheTimestamp < 3600000)) {
-      return toastMenuCache;
-    }
-
-    console.log('🔄 Loading Toast menu into cache...');
-    const token = await getToastToken();
-    
-    const menuResponse = await fetch(`${TOAST_API_HOSTNAME}/menus/v2/menus`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Toast-Restaurant-External-ID': TOAST_RESTAURANT_GUID
-      }
-    });
-
-    if (!menuResponse.ok) {
-      console.error('Failed to load Toast menu cache');
-      return null;
-    }
-
-    const menus = await menuResponse.json();
-    const menuArray = menus.menus || menus;
-    
-    const menuItems = [];
-    menuArray.forEach(menu => {
-      if (menu.menuGroups) {
-        menu.menuGroups.forEach(group => {
-          if (group.menuItems) {
-            group.menuItems.forEach(item => {
-              menuItems.push({
-                name: item.name,
-                guid: item.guid,
-                lowerName: item.name.toLowerCase()
-              });
-            });
-          }
-        });
-      }
-    });
-
-    toastMenuCache = menuItems;
-    menuCacheTimestamp = Date.now();
-    console.log(`✅ Cached ${menuItems.length} Toast menu items`);
-    return menuItems;
-  } catch (error) {
-    console.error('Error loading Toast menu cache:', error);
-    return null;
-  }
-}
-
-// AI-powered menu item matching
-async function findBestToastMenuMatch(localItemName) {
-  try {
-    if (!OPENAI_API_KEY) {
-      if (LOG_CONFIG.showMenuLookups || LOG_CONFIG.mode === 'full') {
-        console.log('⚠️ OpenAI API key not configured for menu matching');
-      }
-      return null;
-    }
-
-    const toastItems = await loadToastMenuCache();
-    if (!toastItems || toastItems.length === 0) {
-      if (LOG_CONFIG.showMenuLookups || LOG_CONFIG.mode === 'full') {
-        console.log('⚠️ Toast menu cache empty, cannot do AI matching');
-      }
-      return null;
-    }
-
-    if (LOG_CONFIG.showMenuLookups || LOG_CONFIG.mode === 'full') {
-      console.log(`🤖 Using AI to match: "${localItemName}"`);
-    }
-
-    const menuList = toastItems.map(item => item.name).join('\n');
-    
-    const prompt = `You are a restaurant menu matching expert. Find the best match for "${localItemName}" from this Toast POS menu:
-
-${menuList}
-
-Return ONLY the exact menu item name that best matches "${localItemName}". If no good match exists, return "NOT_FOUND".
-
-Matching rules:
-- Prioritize exact matches first
-- Handle semantic similarity (goat biryani → Goat Dum Biryani)
-- Handle plural/singular variations (samosas → Veg Samosas)
-- Consider common menu variations (mix grill → Tandoori Mix Grill)
-- Match by cuisine type and cooking method
-- Return the Toast menu name exactly as shown above`;
-
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'gpt-3.5-turbo',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.1,
-        max_tokens: 100
-      })
-    });
-
-    if (!response.ok) {
-      console.error('OpenAI API error for menu matching:', response.status);
-      return null;
-    }
-
-    const data = await response.json();
-    const aiMatch = data.choices[0].message.content.trim();
-    
-    if (aiMatch === 'NOT_FOUND') {
-      if (LOG_CONFIG.showMenuLookups || LOG_CONFIG.mode === 'full') {
-        console.log(`🤖 AI found no match for: ${localItemName}`);
-      }
-      return null;
-    }
-
-    // Verify the AI match exists in our cache
-    const foundItem = toastItems.find(item => 
-      item.name.toLowerCase() === aiMatch.toLowerCase()
-    );
-
-    if (foundItem) {
-      if (LOG_CONFIG.showMenuLookups || LOG_CONFIG.mode === 'full') {
-        console.log(`🤖 AI matched "${localItemName}" → "${aiMatch}"`);
-      }
-      return foundItem.name;
-    } else {
-      if (LOG_CONFIG.showMenuLookups || LOG_CONFIG.mode === 'full') {
-        console.log(`🤖 AI returned invalid match: ${aiMatch}`);
-      }
-      return null;
-    }
-
-  } catch (error) {
-    console.error('Error in AI menu matching:', error);
-    return null;
-  }
-}
-
-// Enhanced menu item lookup with AI fallback
-async function getToastMenuItemGuidWithAI(itemName, logger = null) {
-  try {
-    if (LOG_CONFIG.showMenuLookups || LOG_CONFIG.mode === 'full') {
-      console.log(`🔍 Smart lookup for: ${itemName}`);
-    }
-
-    // 1. Check manual mappings first (fastest)
-    const mappedName = ITEM_MAPPINGS[itemName.toLowerCase()];
-    if (mappedName) {
-      if (LOG_CONFIG.showMenuLookups || LOG_CONFIG.mode === 'full') {
-        console.log(`📋 Found manual mapping: ${itemName} → ${mappedName}`);
-      }
-      return await getToastMenuItemGuidDirect(mappedName);
-    }
-
-    // 2. Check AI cache (fast)
-    if (aiMenuMappingCache.has(itemName.toLowerCase())) {
-      const cachedMatch = aiMenuMappingCache.get(itemName.toLowerCase());
-      if (LOG_CONFIG.showMenuLookups || LOG_CONFIG.mode === 'full') {
-        console.log(`💾 Found AI cache: ${itemName} → ${cachedMatch}`);
-      }
-      return await getToastMenuItemGuidDirect(cachedMatch);
-    }
-
-    // 3. Try direct lookup first
-    const directGuid = await getToastMenuItemGuidDirect(itemName);
-    if (directGuid) {
-      return directGuid;
-    }
-
-    // 4. Use AI to find match + cache result (slow but smart)
-    const aiMatch = await findBestToastMenuMatch(itemName);
-    if (aiMatch) {
-      // Cache the successful AI match
-      aiMenuMappingCache.set(itemName.toLowerCase(), aiMatch);
-      if (LOG_CONFIG.showMenuLookups || LOG_CONFIG.mode === 'full') {
-        console.log(`💾 Cached AI match: ${itemName} → ${aiMatch}`);
-      }
-      return await getToastMenuItemGuidDirect(aiMatch);
-    }
-
-    // Log the error with suggestion
-    const suggestion = suggestSimilarItem(itemName);
-    if (logger) {
-      logger.logItemNotFound(itemName, suggestion);
-    } else {
-      console.log(`❌ No match found for: ${itemName}`);
-      if (suggestion) {
-        console.log(`   💡 Similar item: ${suggestion}`);
-      }
-    }
-    return null;
-
-  } catch (error) {
-    if (logger) {
-      logger.logError(error, 'menu_lookup', itemName);
-    } else {
-      console.error('Error in smart menu lookup:', error);
-    }
-    return null;
-  }
-}
-
-// Direct GUID lookup without AI (used by the smart lookup)
-async function getToastMenuItemGuidDirect(itemName) {
-  try {
-    const toastItems = await loadToastMenuCache();
-    if (!toastItems) {
-      return null;
-    }
-
-    const foundItem = toastItems.find(item => 
-      item.lowerName === itemName.toLowerCase()
-    );
-
-    if (foundItem) {
-      if (LOG_CONFIG.showMenuLookups || LOG_CONFIG.mode === 'full') {
-        console.log(`✅ Found Toast item: ${foundItem.name} (${foundItem.guid})`);
-      }
-      return foundItem.guid;
-    }
-
-    return null;
-  } catch (error) {
-    console.error('Error in direct GUID lookup:', error);
-    return null;
-  }
-}
-
-// Function to create order in Toast
-async function createToastOrder(orderData, logger = null) {
-  try {
-    if (!TOAST_API_HOSTNAME || !TOAST_CLIENT_ID || !TOAST_CLIENT_SECRET || !TOAST_RESTAURANT_GUID) {
-      const error = new Error('Toast API credentials not configured');
-      if (logger) {
-        logger.logToastError(error, orderData);
-      }
-      throw error;
-    }
-
-    const token = await getToastToken();
-    
-    // Get dining option GUIDs
-    const diningResponse = await fetch(`${TOAST_API_HOSTNAME}/config/v2/diningOptions`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Toast-Restaurant-External-ID': TOAST_RESTAURANT_GUID
-      }
-    });
-    
-    let diningOptions = {};
-    if (diningResponse.ok) {
-      const options = await diningResponse.json();
-      options.forEach(opt => {
-        diningOptions[opt.name.toLowerCase()] = opt.guid;
-      });
-    }
-    
-    // Find appropriate dining option
-    let diningOptionGuid = null;
-    if (orderData.order_type === 'delivery') {
-      diningOptionGuid = diningOptions['delivery'] || diningOptions['deliver'];
-    } else {
-      diningOptionGuid = diningOptions['takeout'] || diningOptions['pickup'] || diningOptions['take out'];
-    }
-    
-    if (!diningOptionGuid) {
-      const error = new Error(`Dining option not found for: ${orderData.order_type}`);
-      if (logger) {
-        logger.logToastError(error, orderData);
-      }
-      throw error;
-    }
-    
-    // Build selections array
-    const selections = [];
-    const skippedItems = [];
-    
-    for (const item of orderData.items) {
-      const itemGuid = await getToastMenuItemGuidWithAI(item.name, logger);
-      
-      if (!itemGuid) {
-        skippedItems.push(item.name);
-        if (logger) {
-          logger.logItemNotFound(item.name);
-        } else {
-          console.error(`Skipping item - not found in Toast: ${item.name}`);
-        }
-        continue;
-      }
-      
-      const selection = {
-        item: {
-          guid: itemGuid
-        },
-        quantity: item.quantity,
-        modifiers: []
-      };
-      
-      // Add spice level modifiers if present
-      if (item.modifications) {
-        for (const mod of item.modifications) {
-          if (mod.startsWith('spice:')) {
-            // For now, we'll add as premodifier without GUID
-            // In production, you'd look up the actual modifier GUID
-            selection.preModifier = mod.replace('spice: ', '').toUpperCase() + ' SPICE';
-          }
-        }
-      }
-      
-      selections.push(selection);
-    }
-    
-    if (selections.length === 0) {
-      const error = new Error('No valid menu items found for Toast order');
-      if (logger) {
-        logger.logToastError(error, orderData);
-      }
-      throw error;
-    }
-    
-    // Build Toast order
-    const toastOrder = {
-      diningOption: {
-        guid: diningOptionGuid
-      },
-      checks: [{
-        customer: {
-          firstName: orderData.customer_name.split(' ')[0] || 'Guest',
-          lastName: orderData.customer_name.split(' ').slice(1).join(' ') || '',
-          phone: orderData.phone.replace(/-/g, ''),
-          email: null
-        },
-        selections: selections,
-        appliedDiscounts: [],
-        taxExempt: false
-      }]
-    };
-    
-    // Add promised date if not ASAP
-    if (orderData.pickup_time !== 'ASAP') {
-      const promisedDate = calculatePromisedDate(orderData.pickup_time);
-      toastOrder.promisedDate = promisedDate;
-    }
-    
-    // If delivery, add delivery info
-    if (orderData.order_type === 'delivery' && orderData.address !== 'N/A') {
-      toastOrder.deliveryInfo = {
-        address1: orderData.address,
-        deliveryInstructions: orderData.notes || ''
-      };
-    }
-    
-    if (LOG_CONFIG.showToastIntegration && LOG_CONFIG.mode === 'full') {
-      console.log('📤 Sending order to Toast:', JSON.stringify(toastOrder, null, 2));
-    }
-    
-    // Create the order
-    const response = await fetch(`${TOAST_API_HOSTNAME}/orders/v2/orders`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Toast-Restaurant-External-ID': TOAST_RESTAURANT_GUID,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(toastOrder)
-    });
-    
-    const responseText = await response.text();
-    
-    if (!response.ok) {
-      const error = new Error(`Failed to create Toast order: ${response.status} - ${responseText}`);
-      if (logger) {
-        logger.logToastError(error, orderData);
-      }
-      throw error;
-    }
-    
-    const createdOrder = JSON.parse(responseText);
-    console.log('✅ Toast order created successfully:', createdOrder.guid);
-    
-    return {
-      success: true,
-      orderId: createdOrder.guid,
-      orderNumber: createdOrder.displayNumber || createdOrder.checks?.[0]?.displayNumber,
-      estimatedReadyTime: createdOrder.estimatedFulfillmentDate || createdOrder.promisedDate,
-      skippedItems: skippedItems
-    };
-    
-  } catch (error) {
-    console.error('❌ Error creating Toast order:', error);
-    if (logger) {
-      logger.logToastError(error, orderData);
-    }
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-}
-
-// Helper function to calculate promised date
-function calculatePromisedDate(pickupTime) {
-  const now = new Date();
-  const match = pickupTime.match(/(\d+)\s+(minute|min|hour|hr)/i);
-  
-  if (match) {
-    const amount = parseInt(match[1]);
-    const unit = match[2].toLowerCase();
-    
-    if (unit.startsWith('min')) {
-      now.setMinutes(now.getMinutes() + amount);
-    } else if (unit.startsWith('hour') || unit.startsWith('hr')) {
-      now.setHours(now.getHours() + amount);
-    }
-  }
-  
-  return now.toISOString();
-}
-
-// Add the test endpoints temporarily
-app.get('/toast-info', async (req, res) => {
-  try {
-    console.log('🔍 Fetching Toast restaurant info...');
-    
-    // Get authentication token
-    const authResponse = await fetch(`${TOAST_API_HOSTNAME}/authentication/v1/authentication/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        clientId: TOAST_CLIENT_ID,
-        clientSecret: TOAST_CLIENT_SECRET,
-        userAccessType: 'TOAST_MACHINE_CLIENT'
-      })
-    });
-
-    if (!authResponse.ok) {
-      const error = await authResponse.text();
-      return res.status(500).json({ 
-        error: 'Authentication failed', 
-        details: error,
-        status: authResponse.status 
-      });
-    }
-
-    const authData = await authResponse.json();
-    const token = authData.token.accessToken;
-    console.log('✅ Successfully authenticated with Toast');
-    
-    // Get restaurants
-    const restaurantResponse = await fetch(`${TOAST_API_HOSTNAME}/config/v2/restaurants`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Toast-Restaurant-External-ID': '*'
-      }
-    });
-
-    if (!restaurantResponse.ok) {
-      const error = await restaurantResponse.text();
-      return res.status(500).json({ 
-        error: 'Failed to get restaurants', 
-        details: error 
-      });
-    }
-
-    const restaurants = await restaurantResponse.json();
-    
-    // Get locations for each restaurant
-    const restaurantInfo = [];
-    
-    for (const restaurant of restaurants) {
-      const locResponse = await fetch(`${TOAST_API_HOSTNAME}/config/v2/locations`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Toast-Restaurant-External-ID': restaurant.guid
-        }
-      });
-      
-      let locations = [];
-      if (locResponse.ok) {
-        locations = await locResponse.json();
-      }
-      
-      restaurantInfo.push({
-        restaurant: {
-          name: restaurant.name,
-          guid: restaurant.guid
-        },
-        locations: locations.map(loc => ({
-          name: loc.name,
-          guid: loc.guid,
-          address: loc.address
-        }))
-      });
-    }
-    
-    // Return formatted information
-    res.json({
-      success: true,
-      message: 'Add these to your Railway environment variables:',
-      data: restaurantInfo,
-      instructions: restaurantInfo.length > 0 ? {
-        TOAST_RESTAURANT_GUID: restaurantInfo[0].restaurant.guid,
-        TOAST_LOCATION_GUID: restaurantInfo[0].locations[0]?.guid || 'No locations found'
-      } : 'No restaurants found'
-    });
-    
-  } catch (error) {
-    console.error('❌ Error:', error);
-    res.status(500).json({ 
-      error: 'Internal server error', 
-      message: error.message 
-    });
-  }
-});
-
-// Add menu endpoint to get GUIDs - FIXED VERSION
-app.get('/toast-menu', async (req, res) => {
-  try {
-    const TOAST_RESTAURANT_GUID = process.env.TOAST_RESTAURANT_GUID;
-    
-    if (!TOAST_RESTAURANT_GUID) {
-      return res.status(400).json({ 
-        error: 'TOAST_RESTAURANT_GUID not set in environment variables' 
-      });
-    }
-    
-    console.log('🔍 Fetching Toast menu info...');
-    
-    // Get authentication token
-    const authResponse = await fetch(`${TOAST_API_HOSTNAME}/authentication/v1/authentication/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        clientId: TOAST_CLIENT_ID,
-        clientSecret: TOAST_CLIENT_SECRET,
-        userAccessType: 'TOAST_MACHINE_CLIENT'
-      })
-    });
-
-    if (!authResponse.ok) {
-      const error = await authResponse.text();
-      return res.status(500).json({ 
-        error: 'Authentication failed', 
-        details: error 
-      });
-    }
-
-    const authData = await authResponse.json();
-    const token = authData.token.accessToken;
-    
-    // FIXED: Use Menus API V2 instead of Config API
-    const menuResponse = await fetch(`${TOAST_API_HOSTNAME}/menus/v2/menus`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Toast-Restaurant-External-ID': TOAST_RESTAURANT_GUID
-      }
-    });
-
-    if (!menuResponse.ok) {
-      const error = await menuResponse.text();
-      return res.status(500).json({ 
-        error: 'Failed to get menu', 
-        details: error 
-      });
-    }
-
-    const menus = await menuResponse.json();
-    
-    // Create mappings
-    const menuItemGuids = {};
-    const modifierGuids = {};
-    
-    // FIXED: Process resolved menu structure from Menus API V2
-    const menuArray = menus.menus || menus;  // Handle both object and array responses
-    menuArray.forEach(menu => {
-      if (menu.menuGroups) {
-        menu.menuGroups.forEach(group => {
-          if (group.menuItems) {
-            group.menuItems.forEach(item => {
-              // Store by lowercase name for easy matching
-              menuItemGuids[item.name.toLowerCase()] = {
-                guid: item.guid,
-                name: item.name,
-                price: item.price || 0
-              };
-              
-              // Process modifiers
-              if (item.modifierGroups) {
-                item.modifierGroups.forEach(modGroup => {
-                  if (modGroup.modifiers) {
-                    modGroup.modifiers.forEach(modifier => {
-                      modifierGuids[modifier.name.toLowerCase()] = {
-                        guid: modifier.guid,
-                        name: modifier.name
-                      };
-                    });
-                  }
-                });
-              }
-              
-              // Also check for premodifiers
-              if (item.preModifiers) {
-                item.preModifiers.forEach(preMod => {
-                  modifierGuids[preMod.name.toLowerCase()] = {
-                    guid: preMod.guid,
-                    name: preMod.name
-                  };
-                });
-              }
-            });
-          }
-        });
-      }
-    });
-    
-    // Get dining options
-    const diningResponse = await fetch(`${TOAST_API_HOSTNAME}/config/v2/diningOptions`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Toast-Restaurant-External-ID': TOAST_RESTAURANT_GUID
-      }
-    });
-    
-    let diningOptionGuids = {};
-    if (diningResponse.ok) {
-      const diningOptions = await diningResponse.json();
-      diningOptions.forEach(option => {
-        diningOptionGuids[option.name.toLowerCase()] = {
-          guid: option.guid,
-          name: option.name
-        };
-      });
-    }
-    
-    res.json({
-      success: true,
-      menuItems: menuItemGuids,
-      modifiers: modifierGuids,
-      diningOptions: diningOptionGuids,
-      summary: {
-        totalMenuItems: Object.keys(menuItemGuids).length,
-        totalModifiers: Object.keys(modifierGuids).length,
-        totalDiningOptions: Object.keys(diningOptionGuids).length
-      }
-    });
-    
-  } catch (error) {
-    console.error('❌ Error:', error);
-    res.status(500).json({ 
-      error: 'Internal server error', 
-      message: error.message 
-    });
-  }
-});
 
 // AI-powered order summarization function
 async function summarizeOrderWithAI(orderText) {
@@ -1559,7 +384,7 @@ Return JSON array:
     }
 
     const aiResponse = data.choices[0].message.content;
-    if (LOG_CONFIG.mode === 'full') {
+    if (LOG_MODE === 'full') {
       console.log('🤖 Raw AI Response:', aiResponse);
     }
     
@@ -1571,7 +396,7 @@ Return JSON array:
       return null;
     }
     
-    if (LOG_CONFIG.mode === 'full') {
+    if (LOG_MODE === 'full') {
       console.log('🤖 AI Parsed Order:', JSON.stringify(parsedOrder, null, 2));
     }
     return parsedOrder;
@@ -1745,7 +570,7 @@ function extractContactInfo(transcript) {
     if (customerResponse && customerResponse.role === 'user' && 
         typeof customerResponse.message === 'string' && 
         /yes|correct|right|confirm|confirmed|that.?s right|yeah/i.test(customerResponse.message)) {
-      if (LOG_CONFIG.mode === 'full') {
+      if (process.env.LOG_MODE === 'full') {
         console.log('✅ Found last AI confirmation:', confirmationMessage);
         console.log('✅ Customer confirmed:', customerResponse.message);
       }
@@ -1754,7 +579,7 @@ function extractContactInfo(transcript) {
       const nameMatch = confirmationMessage.match(/your name is\s+([a-zA-Z\s]+?)\s+and your phone number is/i);
       if (nameMatch && nameMatch[1]) {
         name = nameMatch[1].trim();
-        if (LOG_CONFIG.mode === 'full') {
+        if (process.env.LOG_MODE === 'full') {
           console.log('📋 Extracted name:', name);
         }
       }
@@ -1765,15 +590,15 @@ function extractContactInfo(transcript) {
         let rawPhone = phoneMatch[1].replace(/[^0-9]/g, '');
         if (rawPhone.length === 10) {
           phone = `${rawPhone.slice(0, 3)}-${rawPhone.slice(3, 6)}-${rawPhone.slice(6)}`;
-          if (LOG_CONFIG.mode === 'full') {
+          if (process.env.LOG_MODE === 'full') {
             console.log('📞 Extracted phone:', phone);
           }
         }
       }
-    } else if (LOG_CONFIG.mode === 'full') {
+    } else if (process.env.LOG_MODE === 'full') {
       console.log('⚠️ Customer confirmation not found or invalid for:', confirmationMessage);
     }
-  } else if (LOG_CONFIG.mode === 'full') {
+  } else if (process.env.LOG_MODE === 'full') {
     console.log('⚠️ No AI confirmation message found matching "to confirm, your name is ... and your phone number is ..."');
   }
   
@@ -1783,7 +608,7 @@ function extractContactInfo(transcript) {
       const addressMatch = turn.message.match(/(?:address is|live at|deliver to)\s+(.+?)(?:\.|,|$)/i);
       if (addressMatch) {
         address = addressMatch[1].trim();
-        if (LOG_CONFIG.mode === 'full') {
+        if (process.env.LOG_MODE === 'full') {
           console.log('🏠 Extracted address:', address);
         }
       }
@@ -1815,7 +640,7 @@ function addItemToOrder(items, itemName, quantity, price, modifications = []) {
     }
     
     items.push(newItem);
-    console.log(`  ✅ Added: ${itemName} x${quantity} @ ${price}`);
+    console.log(`  ✅ Added: ${itemName} x${quantity} @ $${price}`);
   }
 }
 
@@ -1834,7 +659,7 @@ async function extractItemsFromTranscript(transcript, callId) {
     .join(' ')
     .toLowerCase();
   
-  if (LOG_CONFIG.mode === 'full') {
+  if (LOG_MODE === 'full') {
     console.log('🔍 Full conversation:', fullConversation);
   }
   
@@ -1871,14 +696,14 @@ async function extractItemsFromTranscript(transcript, callId) {
       turn.message && typeof turn.message === 'string' && 
       turn.message.toLowerCase().includes(orderText.toLowerCase())
     );
-    if (LOG_CONFIG.mode === 'full') {
+    if (LOG_MODE === 'full') {
       console.log('✅ Using final order confirmation:', orderText);
       console.log('📍 Confirmation found at turn index:', confirmationIndex);
     }
   }
   
   if (!orderText) {
-    if (LOG_CONFIG.mode === 'full') {
+    if (LOG_MODE === 'full') {
       console.log('🔄 No order confirmation found');
     }
   }
@@ -1891,14 +716,14 @@ async function extractItemsFromTranscript(transcript, callId) {
         customerResponse.message && typeof customerResponse.message === 'string' && 
         /yes|correct|right|confirm|confirmed|that.?s right|yeah/i.test(customerResponse.message)) {
       isCustomerConfirmed = true;
-      if (LOG_CONFIG.mode === 'full') {
+      if (LOG_MODE === 'full') {
         console.log('✅ Customer confirmed order:', customerResponse.message);
       }
     }
   }
   
   if (!isCustomerConfirmed && orderText) {
-    if (LOG_CONFIG.mode === 'full') {
+    if (LOG_MODE === 'full') {
       console.log('⚠️ Customer confirmation not found, proceeding with last order confirmation');
     }
   }
@@ -1907,7 +732,7 @@ async function extractItemsFromTranscript(transcript, callId) {
   const TIME_THRESHOLD = 60 * 60 * 1000; // 1 hour in milliseconds
   if (latestCompleteOrder && latestCompleteOrder.callId === callId && 
       latestOrderTimestamp && (Date.now() - latestOrderTimestamp < TIME_THRESHOLD)) {
-    if (LOG_CONFIG.mode === 'full') {
+    if (LOG_MODE === 'full') {
       console.log('✅ Using items from /get-total for call:', callId);
       console.log('📦 /get-total items:', JSON.stringify(latestCompleteOrder.items, null, 2));
     }
@@ -1927,12 +752,12 @@ async function extractItemsFromTranscript(transcript, callId) {
     const aiParsedOrder = await summarizeOrderWithAI(orderText);
     
     if (aiParsedOrder && aiParsedOrder.length > 0) {
-      if (LOG_CONFIG.mode === 'full') {
+      if (LOG_MODE === 'full') {
         console.log('🤖 Merging /get-total items with AI-parsed spice levels/notes');
       }
       return mergeGetTotalWithAIParsed(latestCompleteOrder.items, aiParsedOrder);
     } else {
-      if (LOG_CONFIG.mode === 'full') {
+      if (LOG_MODE === 'full') {
         console.log('⚠️ AI parsing failed, using /get-total items with default mild spice for biryanis/entrees');
       }
       // Fallback: Use /get-total items with default spice levels
@@ -1947,7 +772,7 @@ async function extractItemsFromTranscript(transcript, callId) {
   }
   
   // Fallback to full AI parsing if no valid /get-total order
-  if (LOG_CONFIG.mode === 'full') {
+  if (LOG_MODE === 'full') {
     console.log('⚠️ No valid /get-total order found, falling back to AI parsing');
   }
   
@@ -1958,13 +783,13 @@ async function extractItemsFromTranscript(transcript, callId) {
   const aiParsedOrder = await summarizeOrderWithAI(orderText);
   
   if (aiParsedOrder && aiParsedOrder.length > 0) {
-    if (LOG_CONFIG.mode === 'full') {
+    if (LOG_MODE === 'full') {
       console.log('🤖 Using AI-parsed order');
     }
     return convertAIParsedToItems(aiParsedOrder);
   }
   
-  if (LOG_CONFIG.mode === 'full') {
+  if (LOG_MODE === 'full') {
     console.log('⚠️ AI parsing failed, returning empty items');
   }
   return items;
@@ -1972,7 +797,7 @@ async function extractItemsFromTranscript(transcript, callId) {
 
 // Enhanced extraction with AI
 async function extractItemsFromTranscriptWithAI(transcript, callId) {
-  if (LOG_CONFIG.mode === 'full') {
+  if (LOG_MODE === 'full') {
     console.log('🔍 Using AI-enhanced parsing via extractItemsFromTranscript');
   }
   return await extractItemsFromTranscript(transcript, callId);
@@ -1981,14 +806,14 @@ async function extractItemsFromTranscriptWithAI(transcript, callId) {
 async function extractOrderFromSummary(summary, fallbackTranscript, callId) {
   // Try transcript parsing FIRST (most reliable)
   if (fallbackTranscript && Array.isArray(fallbackTranscript) && fallbackTranscript.length > 0) {
-    if (LOG_CONFIG.mode === 'full') {
+    if (LOG_MODE === 'full') {
       console.log('🎯 Trying transcript parsing first');
     }
     
     const transcriptItems = await extractItemsFromTranscript(fallbackTranscript, callId);
     
     if (transcriptItems && transcriptItems.length > 0) {
-      if (LOG_CONFIG.mode === 'full') {
+      if (LOG_MODE === 'full') {
         console.log('✅ Successfully extracted items');
       }
       
@@ -2025,7 +850,7 @@ async function extractOrderFromSummary(summary, fallbackTranscript, callId) {
   }
   
   // Final fallback - try to parse from summary if no transcript success
-  if (LOG_CONFIG.mode === 'full') {
+  if (LOG_MODE === 'full') {
     console.log('⚠️ No valid transcript items found, returning null');
   }
   return null;
@@ -2236,7 +1061,7 @@ app.post('/get-total', async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
-    service: 'Roti\'s Indian Restaurant Price Calculator v1.6.2',
+    service: 'Roti\'s Indian Restaurant Price Calculator v1.5.3',
     timestamp: new Date().toISOString()
   });
 });
@@ -2255,111 +1080,141 @@ function addProcessedCall(callId) {
   processedCalls.set(callId, Date.now());
 }
 
-// Updated post-call handler with improved logging
 app.post('/post-call', async (req, res) => {
-  const logger = new OrderLogger();
+  if (LOG_MODE === 'full') {
+    console.log('\n' + '='.repeat(60));
+    console.log('✅ Webhook received at:', new Date().toISOString());
+    console.log('='.repeat(60));
+  }
   
-  try {
-    const data = req.body;
-    const transcript = data?.data?.transcript || data?.transcript || [];
-    const callId = data?.data?.conversation_id || data?.conversation_id;
-    const status = data?.data?.status || data?.status;
+  const data = req.body;
+  const transcript = data?.data?.transcript || data?.transcript || [];
+  const callId = data?.data?.conversation_id || data?.conversation_id;
+  const status = data?.data?.status || data?.status;
 
-    logger.startOrderProcessing(callId);
+  if (LOG_MODE === 'full') {
+    console.log('📞 Call ID:', callId);
+    console.log('📊 Call Status:', status);
+    console.log('📝 Raw transcript:', JSON.stringify(transcript, null, 2));
+  }
+  
+  // Check if we've already processed this call
+  if (callId && processedCalls.has(callId)) {
+    if (LOG_MODE === 'full') {
+      console.log('⏭️ Skipping duplicate webhook for call:', callId);
+    }
+    return res.status(200).send('✅ Duplicate webhook ignored');
+  }
+  
+  // Mark this call as processed
+  if (callId) {
+    addProcessedCall(callId);
+  }
 
-    // Check for duplicate processing
-    if (callId && processedCalls.has(callId)) {
-      if (LOG_CONFIG.mode === 'full') {
-        console.log('⏭️ Skipping duplicate webhook for call:', callId);
+  if (!transcript || !Array.isArray(transcript) || transcript.length === 0) {
+    if (LOG_MODE === 'full') {
+      console.log('⚠️ No transcript found in webhook payload');
+    }
+    return res.status(200).send('✅ Webhook received - No transcript to process');
+  }
+
+  // Validate transcript entries
+  const validTranscript = transcript.filter(turn => 
+    turn && typeof turn === 'object' && turn.role && typeof turn.message === 'string'
+  );
+  if (validTranscript.length < transcript.length) {
+    console.log('⚠️ Found invalid transcript entries:', 
+      transcript.filter(turn => !turn || typeof turn !== 'object' || !turn.role || typeof turn.message !== 'string'));
+  }
+
+  // In summary mode, only show order confirmation exchanges
+  if (LOG_MODE === 'summary') {
+    console.log('\n' + '='.repeat(60));
+    console.log('📞 Call Summary - ID:', callId);
+    console.log('='.repeat(60));
+    
+    // Find final order confirmation
+    let confirmationIndex = -1;
+    for (let i = validTranscript.length - 1; i >= 0; i--) {
+      if (validTranscript[i].role === 'agent' && 
+          typeof validTranscript[i].message === 'string' && 
+          /your final order is|got it.*?your final order is|here's your order|to confirm/i.test(validTranscript[i].message)) {
+        confirmationIndex = i;
+        break;
       }
-      return res.status(200).send('✅ Duplicate webhook ignored');
     }
-
-    if (callId) {
-      addProcessedCall(callId);
-    }
-
-    // Validate transcript
-    if (!transcript || !Array.isArray(transcript) || transcript.length === 0) {
-      if (LOG_CONFIG.mode === 'full') {
-        console.log('⚠️ No transcript found in webhook payload');
-      }
-      return res.status(200).send('✅ Webhook received - No transcript to process');
-    }
-
-    const validTranscript = transcript.filter(turn => 
-      turn && typeof turn === 'object' && turn.role && typeof turn.message === 'string'
-    );
-
-    if (validTranscript.length < transcript.length) {
-      logger.logError(new Error('Found invalid transcript entries'), 'transcript_validation');
-    }
-
-    // Show order confirmation exchanges in summary mode
-    if (LOG_CONFIG.mode === 'summary') {
-      // Find final order confirmation
-      let confirmationIndex = -1;
-      for (let i = validTranscript.length - 1; i >= 0; i--) {
-        if (validTranscript[i].role === 'agent' && 
-            typeof validTranscript[i].message === 'string' && 
-            /your final order is|got it.*?your final order is|here's your order|to confirm/i.test(validTranscript[i].message)) {
-          confirmationIndex = i;
-          break;
-        }
-      }
+    
+    if (confirmationIndex !== -1) {
+      console.log('\n📝 Final Order Confirmation:');
+      console.log('Agent:', validTranscript[confirmationIndex].message);
       
-      if (confirmationIndex !== -1) {
-        console.log('\n📝 Final Order Confirmation:');
-        console.log('Agent:', validTranscript[confirmationIndex].message.substring(0, 200) + '...');
-        
-        // Look for customer confirmation
-        if (confirmationIndex + 1 < validTranscript.length) {
-          console.log('Customer:', validTranscript[confirmationIndex + 1].message);
-        }
+      // Look for customer confirmation
+      if (confirmationIndex + 1 < validTranscript.length) {
+        console.log('Customer:', validTranscript[confirmationIndex + 1].message);
       }
     }
+  } else {
+    // Full logging mode
+    console.log('\n📝 Processing transcript with', validTranscript.length, 'valid turns');
+    console.log('-'.repeat(60));
+    validTranscript.forEach(turn => {
+      console.log((turn.role === 'agent' ? 'Agent' : 'Customer') + ': "' + turn.message + '"');
+    });
+  }
 
-    // Process order
-    let summaryToUse = data?.data?.analysis?.transcript_summary;
-    if (summaryToUse && LOG_CONFIG.mode === 'summary') {
-      console.log('\n📋 AI Summary:', summaryToUse.substring(0, 200) + '...');
-    }
-
-    const detectedOrder = await extractOrderFromSummary(summaryToUse, validTranscript, callId);
-
-    if (detectedOrder) {
-      // Log customer info
-      logger.logCustomerInfo({
-        name: detectedOrder.customer_name,
-        phone: detectedOrder.phone,
-        address: detectedOrder.address
-      });
-
-      // Log order items
-      logger.logOrderItems(detectedOrder.items);
-
-      // Log totals
-      logger.logTotals({
-        subtotal: detectedOrder.subtotal,
-        tax: detectedOrder.tax,
-        total: detectedOrder.total
-      });
-
-      // Create Toast order if configured
-      if (TOAST_API_HOSTNAME && TOAST_CLIENT_ID && TOAST_CLIENT_SECRET && TOAST_RESTAURANT_GUID) {
-        const toastResult = await createToastOrder(detectedOrder, logger);
-        logger.logToastIntegration(toastResult);
-      } else {
-        logger.logError(new Error('Toast API credentials not fully configured'), 'toast_config');
-      }
+  let summaryToUse = null;
+  if (data?.data?.analysis?.transcript_summary) {
+    summaryToUse = data.data.analysis.transcript_summary;
+    
+    if (LOG_MODE === 'summary') {
+      console.log('\n📋 AI Summary:', summaryToUse);
     } else {
-      logger.logError(new Error('No order detected in transcript'), 'order_extraction');
+      console.log('\n📋 AI-Generated Summary:');
+      console.log('-'.repeat(60));
+      console.log(summaryToUse);
+      console.log('-'.repeat(60));
     }
+  }
 
-  } catch (error) {
-    logger.logError(error, 'post_call_processing');
-  } finally {
-    logger.finishOrderProcessing();
+  if (LOG_MODE === 'full') {
+    console.log('\n🔄 Starting order extraction...');
+  }
+  
+  const detectedOrder = await extractOrderFromSummary(summaryToUse, validTranscript, callId);
+
+  if (detectedOrder) {
+    if (LOG_MODE === 'summary') {
+      console.log('\n📦 Order Detected:');
+      console.log('Customer:', detectedOrder.customer_name, '| Phone:', detectedOrder.phone);
+      console.log('Type:', detectedOrder.order_type, '| Ready in:', detectedOrder.pickup_time);
+      console.log('Items:', detectedOrder.items.length);
+      console.log('Total:', detectedOrder.total);
+      
+      // Show toast payload in compact format
+      console.log('\n🍞 Ready for Toast Integration');
+    } else {
+      console.log('\n' + '='.repeat(60));
+      console.log('📦 ORDER DETECTED SUCCESSFULLY');
+      console.log('='.repeat(60));
+      console.log(JSON.stringify(detectedOrder, null, 2));
+      console.log('='.repeat(60));
+
+      // Create sample Toast payload
+      const toastPayload = {
+        restaurant: "Roti's Indian Restaurant",
+        order: detectedOrder,
+        timestamp: new Date().toISOString(),
+        source: "Voice AI Agent",
+        status: "pending_toast_integration"
+      };
+
+      console.log('\n🍞 Toast Payload (Ready for future integration):');
+      console.log('-'.repeat(60));
+      console.log(JSON.stringify(toastPayload, null, 2));
+      console.log('-'.repeat(60));
+    }
+  } else {
+    console.log('❌ No order detected.');
   }
 
   res.status(200).send('✅ Webhook received and processed');
@@ -2367,11 +1222,10 @@ app.post('/post-call', async (req, res) => {
 
 app.listen(port, () => {
   console.log('============================================');
-  console.log('✅ Roti\'s Indian Restaurant Server v1.6.2 - Started Successfully');
+  console.log('✅ Roti\'s Indian Restaurant Server v1.5.3 - Started Successfully');
   console.log(`📍 Listening on port ${port}`);
-  console.log('🔄 Features: Toast POS Integration, Using /get-total items with AI-parsed spice levels/notes from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction, FIXED MENU API INTEGRATION, IMPROVED ORGANIZED LOGGING SYSTEM');
-  console.log('🍞 Toast integration: ' + (TOAST_API_HOSTNAME && TOAST_CLIENT_ID && TOAST_CLIENT_SECRET ? 'ACTIVE' : 'PENDING CONFIGURATION'));
-  console.log(`📊 Logging mode: ${LOG_CONFIG.mode.toUpperCase()}`);
+  console.log('🔄 Features: Using /get-total items with AI-parsed spice levels/notes from final "Your final order is", default mild spice level for biryanis/entrees, improved appetizer parsing with spice levels, robust contact info extraction, fixed async issue in extractItemsFromTranscript, fixed template literal in Authorization header');
+  console.log('📝 Toast integration ready (awaiting API credentials)');
   console.log('============================================');
 });
 
@@ -2380,10 +1234,6 @@ process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down gracefully...');
   process.exit(0);
 });
-
-console.log('Menu keys containing paneer:', 
-  Object.keys(MENU_ITEMS).filter(key => key.includes('paneer'))
-);
 
 process.on('SIGINT', () => {
   console.log('SIGINT received, shutting down gracefully...');
