@@ -295,7 +295,153 @@ const ITEM_MAPPINGS = {
   // Desserts
   'gulab jamoon': 'gulab jamun',
   'ras malai': 'rasmalai',
-  'house dessert': 'house spl desert'
+  'house dessert': 'house spl desert',
+
+  // ==============================================
+  // NEW TOAST-SPECIFIC MAPPINGS
+  // ==============================================
+  
+  // UPDATED: Your existing mappings now point to Toast exact names
+  
+  // Soups - Updated to Toast exact names
+  'veg hot & sour soup': 'Veg Hot & Soup soup',  // Toast has typo
+  'veg hot and sour soup': 'Veg Hot & Soup soup',
+  'vegetable hot & sour soup': 'Veg Hot & Soup soup',
+  'vegetable hot and sour soup': 'Veg Hot & Soup soup',
+  'chicken hot & sour soup': 'Chicken Hot & sour soup',
+  'chicken hot and sour soup': 'Chicken Hot & sour soup',
+  'tomato soup': 'Tomato Soup',
+  
+  // Appetizers - Updated to Toast exact names
+  'veg samosas': 'Veg Samosa',
+  'vegetable samosas': 'Veg Samosa',
+  'samosas': 'Veg Samosa',
+  'samosa chaat': 'Samosa Chat',
+  'onion pakora': 'Onion Pakora',
+  'mixed veg pakora': 'Mixed veg Pakora',
+  'mixed vegetable pakora': 'Mixed veg Pakora',
+  'punugulu': 'Punugulu',
+  'cut mirchi': 'Cut Mirchi',
+  'spl masala mirchi bajji': 'Spl Masala Mirchi Baji',
+  'special masala mirchi bajji': 'Spl Masala Mirchi Baji',
+  'gobi manchurian': 'Gobi Manjurian',
+  'gobi 65': 'Gobi 65',
+  'baby corn manchurian': 'Baby Corn Manchurian',
+  'baby corn pepper fry': 'Baby Corn Pepper fry',
+  
+  // Paneer items - Map to Toast "Panner" spelling
+  'paneer 65': 'Panner 65',
+  'chicken 65': 'Chicken 65',
+  'chicken majestic': 'Chicken Majestic',
+  'chicken manchurian': 'Chicken Manjurian',
+  'spl chicken pakora': 'Spl Chicken Pakaro',
+  'special chicken pakora': 'Spl Chicken Pakaro',
+  'cashew chicken fry': 'Cashew Chicken fry',
+  'lamb pepper fry': 'Lamb Pepper Fry',
+  'shrimp fry': 'Shrimp fry',
+  
+  // Entrees - Updated to Toast exact names
+  'dal tadka': 'Dal Tadka',
+  'chana masala': 'Channa Masala',  // Toast has double "n"
+  'chole bhatura': 'Chole Bhatura',
+  'mix veg curry': 'Mixed Veg Curry',
+  'aloo gobi masala': 'Aloo Gobi Masala',
+  'spinach paneer': 'Spinach (saag) Panner',  // Toast format
+  'stuffed brinjal curry': 'Stuffed Brinjal Curry',
+  'gutti vankaya curry': 'Stuffed Brinjal Curry',
+  'paneer tikka masala': 'Panner Tikka Masala',
+  'paneer butter masala': 'Panner Butter Masala',
+  'kadai paneer': 'Kadai Panner',
+  'methi malai mutter': 'Methi Malai Mutter',
+  'egg masala': 'Egg Masala',
+  'chicken tikka masala': 'Chicken Tikka Masala',
+  'kadai chicken': 'Kadai Chicken',
+  'butter chicken': 'Butter Chicken',
+  'chicken curry': 'Chicken Curry',
+  'chicken saag': 'Chicken Saag- Spinach',
+  'chicken spinach': 'Chicken Saag- Spinach',
+  'spl chicken vindaloo': 'Spl Chicken Vindaloo',
+  'special chicken vindaloo': 'Spl Chicken Vindaloo',
+  'chicken vindaloo': 'Spl Chicken Vindaloo',
+  'lamb curry': 'Lamb Curry',
+  'spl lamb vindaloo': 'Spl Lamb Vindaloo',
+  'special lamb vindaloo': 'Spl Lamb Vindaloo',
+  'lamb vindaloo': 'Spl Lamb Vindaloo',
+  'lamb saag': 'Lamb Saag(spinach)',
+  'lamb spinach': 'Lamb Saag(spinach)',
+  'goat curry': 'Goat Curry',
+  'shrimp curry': 'Shrimp Curry',
+  
+  // Tandoori - Updated to Toast exact names
+  'paneer tikka kebab': 'Paneer Tikka Kebab',
+  'chicken tikka kebab': 'Chicken Tikka Kebab',
+  'chicken malai kebab': 'Chicken Malai Kebab',
+  'tandoori chicken half': 'Tandoori Chicken Half',
+  'tandoori chicken full': 'Tandoori Chicken Full',
+  'tandoori mix grill': 'Tandoori Mixed Grill',
+  
+  // Biryanis - Updated to Toast exact names
+  'veg dum biryani': 'Veg Dum Biryani',
+  'vegetable dum biryani': 'Veg Dum Biryani',
+  'veg keema biryani': 'Veg Keema Biryani',
+  'vegetable keema biryani': 'Veg Keema Biryani',
+  'house spl paneer biryani': 'HOUSE SPL. Panner Biryani',
+  'house special paneer biryani': 'HOUSE SPL. Panner Biryani',
+  'paneer biryani': 'HOUSE SPL. Panner Biryani',
+  'spl egg biryani': 'Spl. EGG Biryani',
+  'special egg biryani': 'Spl. EGG Biryani',
+  'egg biryani': 'Spl. EGG Biryani',
+  'chicken dum biryani': 'Chicken Dum Biryani',
+  'chicken 65 biryani': 'Chicken 65 Biryani',
+  'goat dum biryani': 'Goat Dum Biryani',
+  'lamb biryani': 'Lamb Biryani',
+  
+  // South Indian - Updated to Toast exact names
+  'idli': 'Idli 2 Pcs',
+  'vada': 'Vada - 2 Pcs',
+  'plain dosa': 'Plain Dosa',
+  'podi dosa': 'Podi Dosa',
+  'onion dosa': 'Onion Dosa',
+  'masala dosa': 'Masala Dosa',
+  'mysore masala dosa': 'Mysore Masala Dosa',
+  'rava dosa': 'Rava Dosa',
+  'rava onion dosa': 'Rava Onion Dosa',
+  'rava masala dosa': 'Rava Masala dosa',
+  
+  // Desserts - Updated to Toast exact names
+  'gulab jamun': 'Gulab Jamun',
+  'rasmalai': 'Rasamalai',
+  'house spl desert': 'House SPL Desert',
+  'house special dessert': 'House SPL Desert',
+  
+  // Beverages - Updated to Toast exact names
+  'coke': 'Coke',
+  'sprite': 'Sprite',
+  'diet coke': 'Diet Coke',
+  'thums up': 'Thums up / Limca / Fanta',
+  'limca': 'Thums up / Limca / Fanta',
+  'fanta': 'Thums up / Limca / Fanta',
+  'mango lassi': 'Mango Lassi',
+  
+  // Breads - Updated to Toast exact names
+  'tandoori roti': 'Tandoori Roti',
+  'butter tandoori roti': 'Butter Tandoori Roti',
+  'sharbati roti': 'Sharbati ROti',  // Toast caps issue
+  'chilli onion roti': 'Chilli Onion Roti',
+  'garlic roti': 'Garlic Roti',
+  'chilli garlic roti': 'Chilli Garlic Roti',
+  'plain naan': 'Plain Naan',
+  'naan': 'Plain Naan',
+  'butter naan': 'Butter Naan',
+  'garlic naan': 'Garlic Naan',
+  'chilli garlic naan': 'Chilli Garlic Naan',
+  
+  // Sides - Updated to Toast exact names
+  'white rice': 'White Rcie',  // Toast typo
+  'rice': 'White Rcie',
+  'raitha': 'Raitha 4 oz',
+  'raita': 'Raitha 4 oz',
+  'sambar': 'Sambar'
 };
 
 const QUANTITY_WORDS = { 
