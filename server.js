@@ -1885,7 +1885,6 @@ async function extractOrderFromSummary(summary, fallbackTranscript, callId) {
   return null;
 }
 
-// Helper function to estimate ready time based on order complexity
 function estimateReadyTime(items) {
   if (!items || !Array.isArray(items) || items.length === 0) {
     return "20-25 minutes";
@@ -1896,40 +1895,52 @@ function estimateReadyTime(items) {
   let totalQuantity = 0;
   
   for (const item of items) {
-    const itemName = item.name.toLowerCase();
+    // Handle both stored order format and direct item format
+    const itemName = (item.name || item.item || '').toLowerCase();
     const quantity = item.quantity || 1;
     totalQuantity += quantity;
+    
+    console.log(`  Analyzing: ${itemName} (qty: ${quantity})`);
     
     // Complex items (biryanis, tandoori) - 25-30 min base
     if (itemName.includes('biryani') || itemName.includes('tandoori')) {
       totalTime = Math.max(totalTime, 25);
       hasComplexItems = true;
+      console.log(`    Complex item detected: +25 min base`);
     }
     // Medium complexity (curries, entrees) - 15-20 min base
     else if (itemName.includes('masala') || itemName.includes('curry') || 
              itemName.includes('chicken') || itemName.includes('lamb') || 
              itemName.includes('goat') || itemName.includes('paneer')) {
       totalTime = Math.max(totalTime, 18);
+      console.log(`    Medium complexity item: +18 min base`);
     }
     // Simple items (appetizers, sides, drinks) - 10-15 min base
     else {
       totalTime = Math.max(totalTime, 12);
+      console.log(`    Simple item: +12 min base`);
     }
   }
   
   // Add time based on total quantity
   if (totalQuantity > 8) {
     totalTime += 15;  // Large orders take longer
+    console.log(`  Large order (${totalQuantity} items): +15 min`);
   } else if (totalQuantity > 5) {
     totalTime += 10;
+    console.log(`  Medium order (${totalQuantity} items): +10 min`);
   } else if (totalQuantity > 3) {
     totalTime += 5;
+    console.log(`  Small-medium order (${totalQuantity} items): +5 min`);
   }
   
   // Add time for multiple complex items coordination
   if (hasComplexItems && totalQuantity > 2) {
     totalTime += 8;
+    console.log(`  Multiple complex items: +8 min coordination time`);
   }
+  
+  console.log(`  Final calculated time: ${totalTime} minutes`);
   
   // Return appropriate time ranges
   if (totalTime >= 40) {
@@ -2164,22 +2175,50 @@ app.post('/estimate-time', async (req, res) => {
     
     console.log('⏱️ Time estimation request:', JSON.stringify(data, null, 2));
     
-    const { items } = data;
+    const { conversation_id } = data;
     
-    if (!items || !Array.isArray(items)) {
+    if (!conversation_id) {
       return res.status(400).json({ 
-        error: 'Invalid request: items array is required',
+        error: 'Invalid request: conversation_id is required',
         estimatedTime: "20-25 minutes"
       });
     }
     
-    const estimatedTime = estimateReadyTime(items);
+    // Look up stored order data using conversation ID
+    let orderItems = [];
+    
+    // Check if we have stored order data for this conversation
+    const TIME_THRESHOLD = 60 * 60 * 1000; // 1 hour threshold
+    if (latestCompleteOrder && 
+        latestCompleteOrder.callId === conversation_id && 
+        latestOrderTimestamp && 
+        (Date.now() - latestOrderTimestamp < TIME_THRESHOLD)) {
+      
+      // Use stored order items from /get-total
+      orderItems = latestCompleteOrder.items;
+      console.log(`✅ Found stored order for conversation ${conversation_id}: ${orderItems.length} items`);
+      
+    } else {
+      console.log(`⚠️ No stored order found for conversation ${conversation_id}, using default timing`);
+      // Fallback to default timing if no stored order
+      return res.json({
+        success: true,
+        estimatedTime: "20-25 minutes",
+        message: "This should be ready in about 20-25 minutes",
+        itemCount: 0,
+        note: "Using default timing - no stored order data found"
+      });
+    }
+    
+    // Calculate estimated time using stored order items
+    const estimatedTime = estimateReadyTime(orderItems);
     
     const response = {
       success: true,
       estimatedTime: estimatedTime,
       message: `This should be ready in about ${estimatedTime}`,
-      itemCount: items.length
+      itemCount: orderItems.length,
+      conversationId: conversation_id
     };
     
     console.log('⏱️ Time estimate response:', response);
