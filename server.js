@@ -1885,6 +1885,68 @@ async function extractOrderFromSummary(summary, fallbackTranscript, callId) {
   return null;
 }
 
+// Helper function to estimate ready time based on order complexity
+function estimateReadyTime(items) {
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return "20-25 minutes";
+  }
+  
+  let totalTime = 0;
+  let hasComplexItems = false;
+  let totalQuantity = 0;
+  
+  for (const item of items) {
+    const itemName = item.name.toLowerCase();
+    const quantity = item.quantity || 1;
+    totalQuantity += quantity;
+    
+    // Complex items (biryanis, tandoori) - 25-30 min base
+    if (itemName.includes('biryani') || itemName.includes('tandoori')) {
+      totalTime = Math.max(totalTime, 25);
+      hasComplexItems = true;
+    }
+    // Medium complexity (curries, entrees) - 15-20 min base
+    else if (itemName.includes('masala') || itemName.includes('curry') || 
+             itemName.includes('chicken') || itemName.includes('lamb') || 
+             itemName.includes('goat') || itemName.includes('paneer')) {
+      totalTime = Math.max(totalTime, 18);
+    }
+    // Simple items (appetizers, sides, drinks) - 10-15 min base
+    else {
+      totalTime = Math.max(totalTime, 12);
+    }
+  }
+  
+  // Add time based on total quantity
+  if (totalQuantity > 8) {
+    totalTime += 15;  // Large orders take longer
+  } else if (totalQuantity > 5) {
+    totalTime += 10;
+  } else if (totalQuantity > 3) {
+    totalTime += 5;
+  }
+  
+  // Add time for multiple complex items coordination
+  if (hasComplexItems && totalQuantity > 2) {
+    totalTime += 8;
+  }
+  
+  // Return appropriate time ranges
+  if (totalTime >= 40) {
+    return "40-45 minutes";
+  } else if (totalTime >= 35) {
+    return "35-40 minutes";
+  } else if (totalTime >= 30) {
+    return "30-35 minutes";
+  } else if (totalTime >= 25) {
+    return "25-30 minutes";
+  } else if (totalTime >= 20) {
+    return "20-25 minutes";
+  } else {
+    return "15-20 minutes";
+  }
+}
+
 // Add the calculate-order endpoint for ElevenLabs integration
 app.post('/calculate-order', async (req, res) => {
   try {
@@ -2086,6 +2148,53 @@ app.post('/get-total', async (req, res) => {
   }
 });
 
+// Time estimation endpoint for ElevenLabs integration
+app.post('/estimate-time', async (req, res) => {
+  try {
+    let data;
+    
+    // Handle different ways the data might come in
+    if (typeof req.body === 'string') {
+      data = JSON.parse(req.body);
+    } else if (req.body.body && typeof req.body.body === 'string') {
+      data = JSON.parse(req.body.body);
+    } else {
+      data = req.body;
+    }
+    
+    console.log('⏱️ Time estimation request:', JSON.stringify(data, null, 2));
+    
+    const { items } = data;
+    
+    if (!items || !Array.isArray(items)) {
+      return res.status(400).json({ 
+        error: 'Invalid request: items array is required',
+        estimatedTime: "20-25 minutes"
+      });
+    }
+    
+    const estimatedTime = estimateReadyTime(items);
+    
+    const response = {
+      success: true,
+      estimatedTime: estimatedTime,
+      message: `This should be ready in about ${estimatedTime}`,
+      itemCount: items.length
+    };
+    
+    console.log('⏱️ Time estimate response:', response);
+    res.json(response);
+    
+  } catch (error) {
+    console.error('❌ Error in estimate-time:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to estimate time',
+      estimatedTime: "20-25 minutes"
+    });
+  }
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ 
@@ -2235,9 +2344,7 @@ process.on('SIGTERM', () => {
   process.exit(0);
 });
 
-console.log('Menu keys containing paneer:', 
-  Object.keys(MENU_ITEMS).filter(key => key.includes('paneer'))
-);
+
 
 process.on('SIGINT', () => {
   console.log('SIGINT received, shutting down gracefully...');
